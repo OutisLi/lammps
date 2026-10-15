@@ -115,6 +115,18 @@ match their ordering as atom types.
 
 ----------
 
+.. versionchanged:: TBD
+
+The :doc:`special_bonds <special_bonds>` scaling factors multiply each
+pair's dispersion energy and its coordination-number derivatives. Forces
+include the coordination dependence of these scaled energies.
+
+The KOKKOS variant evaluates the C6 interpolation in double precision,
+including in single and mixed precision builds, to retain the reference
+fallback criterion at high coordination numbers. The ``KOKKOS_PREC`` build
+option selects the scalar and accumulation types used elsewhere;
+see the :ref:`KOKKOS build settings <kokkos>` for details.
+
 Mixing, shift, table, tail correction, restart, rRESPA info
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 

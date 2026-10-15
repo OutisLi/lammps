@@ -8,7 +8,9 @@ build instructions; DeePMD-kit is required only for its corresponding
 interfaces.
 
 Use the official LAMMPS build and simulation documentation linked below for
-ordinary simulations. NEWTONIAN_SPIN.md describes the optional spin
+ordinary simulations. The dispersion/d3 pair style also provides OpenMP
+and KOKKOS variants; see doc/src/pair_dispersion_d3.rst for their syntax and
+supported settings. NEWTONIAN_SPIN.md describes the optional spin
 functionality, supported models, and installation procedure.
 
 Compatibility note: nve/spin and langevin/spin implement Newtonian dynamics

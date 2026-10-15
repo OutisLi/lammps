@@ -28,7 +28,7 @@ PairStyle(dispersion/d3/kk/host,PairDispersionD3Kokkos<LMPHostType>);
 #include "pair_dispersion_d3.h"
 #include "pair_kokkos.h"
 
-#include <limits>
+#include <type_traits>
 
 namespace LAMMPS_NS {
 
@@ -320,10 +320,10 @@ struct PairDispersionD3KernelA {
   void get_dC6_kokkos(KK_FLOAT &c6, KK_FLOAT &dc6i, KK_FLOAT &dc6j,
       const int &iat, const int &jat, const KK_FLOAT &cni, const KK_FLOAT &cnj) const
   {
-    KK_FLOAT c6_ref, cni_ref, cnj_ref;
-    KK_FLOAT c6mem, r_save, r;
-    KK_FLOAT expterm, term;
-    KK_FLOAT num, den, d_num_i, d_num_j, d_den_i, d_den_j;
+    double c6_ref, cni_ref, cnj_ref;
+    double c6mem, r_save, r;
+    double expterm, term;
+    double num, den, d_num_i, d_num_j, d_den_i, d_den_j;
 
     c6mem = -1.0e20;
     r_save = 1.0e20;
@@ -352,12 +352,12 @@ struct PairDispersionD3KernelA {
             c6mem = c6_ref;
           }
 
-          expterm = Kokkos::exp(static_cast<KK_FLOAT>(K3) * r);
+          expterm = Kokkos::exp(K3 * r);
 
           num += c6_ref * expterm;
           den += expterm;
 
-          expterm = expterm * static_cast<KK_FLOAT>(2.0 * K3);
+          expterm = expterm * (2.0 * K3);
 
           term = expterm * (cni - cni_ref);
           d_num_i += c6_ref * term;
@@ -370,15 +370,16 @@ struct PairDispersionD3KernelA {
       }
     }
 
-    // the reference threshold of 1.0e-99 underflows to zero in a single
-    // precision build, so use the smallest normalized value of KK_FLOAT
+    // Double-precision interpolation preserves the reference fallback in all
+    // precision modes. Its threshold keeps den*den above underflow before
+    // the closest-reference fallback is selected.
 
-    if (den > std::numeric_limits<KK_FLOAT>::min()) {
-      c6 = num / den;
-      dc6i = ((d_num_i * den) - (d_den_i * num)) / (den * den);
-      dc6j = ((d_num_j * den) - (d_den_j * num)) / (den * den);
+    if (den > 1.0e-99) {
+      c6 = static_cast<KK_FLOAT>(num / den);
+      dc6i = static_cast<KK_FLOAT>(((d_num_i * den) - (d_den_i * num)) / (den * den));
+      dc6j = static_cast<KK_FLOAT>(((d_num_j * den) - (d_den_j * num)) / (den * den));
     } else {
-      c6 = c6mem;
+      c6 = static_cast<KK_FLOAT>(c6mem);
       dc6i = 0;
       dc6j = 0;
     }
@@ -628,7 +629,7 @@ struct PairDispersionD3KernelA {
 
         if (EVFLAG) evdwl = -(s6 * e6 + s8 * e8) * factor_lj;
 
-        const KK_FLOAT rest = (s6 * e6 + s8 * e8) / C6;
+        const KK_FLOAT rest = factor_lj * (s6 * e6 + s8 * e8) / C6;
 
         dc6_i += rest * dc6i;
         if (NEIGHFLAG != FULL && (NEWTON_PAIR || j < nlocal)) { a_dc6(j) += rest * dc6j; }
@@ -699,7 +700,6 @@ struct PairDispersionD3KernelB {
   DupScatterView<KK_ACC_FLOAT*[6], typename DAT::t_kkacc_1d_6::array_layout> dup_vatom;
   NonDupScatterView<KK_ACC_FLOAT*[6], typename DAT::t_kkacc_1d_6::array_layout> ndup_vatom;
 
-  KK_FLOAT special_lj[4];
   int nlocal;
   int eflag;
   int vflag_either;
@@ -724,7 +724,6 @@ struct PairDispersionD3KernelB {
       const NonDupScatterView<KK_ACC_FLOAT*, typename DAT::t_kkacc_1d::array_layout> &ndup_eatom_in,
       const DupScatterView<KK_ACC_FLOAT*[6], typename DAT::t_kkacc_1d_6::array_layout> &dup_vatom_in,
       const NonDupScatterView<KK_ACC_FLOAT*[6], typename DAT::t_kkacc_1d_6::array_layout> &ndup_vatom_in,
-      const KK_FLOAT *special_lj_in,
       int nlocal_in, int eflag_in, int vflag_either_in,
       int eflag_global_in, int eflag_atom_in, int vflag_global_in, int vflag_atom_in,
       KK_FLOAT cn_thr_in)
@@ -737,19 +736,7 @@ struct PairDispersionD3KernelB {
       eflag_global(eflag_global_in), eflag_atom(eflag_atom_in),
       vflag_global(vflag_global_in), vflag_atom(vflag_atom_in),
       cn_thr(cn_thr_in)
-  {
-    special_lj[0] = special_lj_in[0];
-    special_lj[1] = special_lj_in[1];
-    special_lj[2] = special_lj_in[2];
-    special_lj[3] = special_lj_in[3];
-  }
-
-  // Extract special bond mask
-  // NOLINTNEXTLINE
-  KOKKOS_INLINE_FUNCTION
-  static int sbmask(const int &j) {
-    return j >> SBBITS & 3;
-  }
+  {}
 
 
   // NOLINTNEXTLINE
@@ -870,7 +857,6 @@ struct PairDispersionD3KernelB {
 
     for (int jj = 0; jj < jnum; jj++) {
       int j = d_neighbors(i, jj);
-      KK_FLOAT factor_lj = special_lj[sbmask(j)];
       j &= NEIGHMASK;
 
       const KK_FLOAT delx = xtmp - x(j, 0);
@@ -894,7 +880,6 @@ struct PairDispersionD3KernelB {
         }
 
         KK_FLOAT fpair = dcn * (d_dc6(i) + d_dc6(j)) / r;
-        fpair *= factor_lj;
 
         fxtmp += delx * fpair;
         fytmp += dely * fpair;
