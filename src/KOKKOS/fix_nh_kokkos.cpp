@@ -50,10 +50,14 @@ enum{ISO,ANISO,TRICLINIC};
 /* ----------------------------------------------------------------------
    arithmetic of the device-resident thermostat chain
 
-   The device chain update must reproduce the host update of
-   FixNH::nhc_temp_integrate() bit for bit. Device code contracts a*b+c into
-   a fused multiply-add unless told otherwise, so every operation is rounded
-   on its own with the explicitly rounded CUDA intrinsics, as on the host.
+   The device chain update reproduces the host update of
+   FixNH::nhc_temp_integrate() bit for bit where the host compiler keeps its
+   multiplications and additions apart, as x86-64 builds without FMA code
+   generation do. Device code contracts a*b+c into a fused multiply-add
+   unless told otherwise, so every operation is rounded on its own with the
+   explicitly rounded CUDA intrinsics. A host compiler that contracts them,
+   as GCC does by default where the target has FMA instructions, makes the
+   two results differ in the last bits at equal accuracy.
 
    exp() follows the double-precision exp of the GNU C library (since
    version 2.28; the algorithm of Arm's optimized-routines): x = k ln2/128 + r,
@@ -147,6 +151,7 @@ __constant__ uint64_t EXP_TABLE[256] = {
   0x3c77893b4d91cd9dULL, 0x3fefe7c1819e90d8ULL, 0x3c5305c14160cc89ULL, 0x3feff3c22b8f71f1ULL};
 #endif
 
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION double nh_add(double a, double b)
 {
 #if defined(__CUDA_ARCH__)
@@ -156,6 +161,7 @@ KOKKOS_INLINE_FUNCTION double nh_add(double a, double b)
 #endif
 }
 
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION double nh_sub(double a, double b)
 {
 #if defined(__CUDA_ARCH__)
@@ -165,6 +171,7 @@ KOKKOS_INLINE_FUNCTION double nh_sub(double a, double b)
 #endif
 }
 
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION double nh_mul(double a, double b)
 {
 #if defined(__CUDA_ARCH__)
@@ -174,6 +181,7 @@ KOKKOS_INLINE_FUNCTION double nh_mul(double a, double b)
 #endif
 }
 
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION double nh_div(double a, double b)
 {
 #if defined(__CUDA_ARCH__)
@@ -183,6 +191,7 @@ KOKKOS_INLINE_FUNCTION double nh_div(double a, double b)
 #endif
 }
 
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION double nh_exp(double x)
 {
 #if defined(__CUDA_ARCH__)
@@ -250,7 +259,7 @@ KOKKOS_INLINE_FUNCTION double nh_exp(double x)
   const double scale = __longlong_as_double(static_cast<long long>(sbits));
   return __fma_rn(scale, tmp, scale);
 #else
-  return exp(x);
+  return Kokkos::exp(x);
 #endif
 }
 
