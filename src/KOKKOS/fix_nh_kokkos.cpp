@@ -271,7 +271,7 @@ FixNHKokkos<DeviceType>::FixNHKokkos(LAMMPS *lmp, int narg, char **arg) : FixNH(
   datamask_read = EMPTY_MASK;
   datamask_modify = EMPTY_MASK;
 
-  chain_on_device = chain_device_newer = chain_refresh = false;
+  chain_device_style = chain_on_device = chain_device_newer = chain_refresh = false;
   chain_tfactor = chain_kecoef = chain_kt = chain_ncfac = 0.0;
   chain_dt8_arg = chain_dthalf_arg = chain_eta_step = 0.0;
   for (double &mass_ich : chain_mass) mass_ich = 0.0;
@@ -296,12 +296,14 @@ void FixNHKokkos<DeviceType>::init()
 
   // the chain stays on the device when no step of a thermostat update needs
   // the host: no barostat, no velocity bias, no spin velocities, and a
-  // temperature whose scalar needs neither an MPI sum nor a recount
+  // temperature whose scalar needs neither an MPI sum nor a recount. The
+  // device kernels replace nh_v_temp() of this class, so a style that
+  // overrides it (e.g. to scale angular velocities) keeps the host chain.
 
   temperatureKK = dynamic_cast<ComputeTempKokkos<DeviceType> *>(temperature);
-  chain_on_device = chain_device_supported<DeviceType>() && tstat_flag && !pstat_flag &&
-    which == NOBIAS && !spin_flag && mtchain <= CHAIN_MAX && temperatureKK &&
-    temperatureKK->scalar_on_device();
+  chain_on_device = chain_device_style && chain_device_supported<DeviceType>() &&
+    tstat_flag && !pstat_flag && which == NOBIAS && !spin_flag && mtchain <= CHAIN_MAX &&
+    temperatureKK && temperatureKK->scalar_on_device();
 
   if (chain_on_device && !d_eta.data()) {
     d_kinetic = decltype(d_kinetic)("nh/kk:kinetic");

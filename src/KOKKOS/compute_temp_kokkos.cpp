@@ -19,6 +19,7 @@
 #include "comm.h"
 #include "error.h"
 #include "force.h"
+#include "group.h"
 #include "update.h"
 
 using namespace LAMMPS_NS;
@@ -81,7 +82,10 @@ double ComputeTempKokkos<DeviceType>::compute_scalar_device(const Kokkos::View<C
 template<class DeviceType>
 bool ComputeTempKokkos<DeviceType>::scalar_on_device() const
 {
-  return !dynamic && comm->nprocs == 1;
+  // test what setup() sets dynamic from: a fix asks during its init(),
+  // before setup() has run for this run
+
+  return !(dynamic_user || group->dynamic[igroup]) && comm->nprocs == 1;
 }
 
 /* ----------------------------------------------------------------------

@@ -39,6 +39,11 @@ FixNVTKokkos<DeviceType>::FixNVTKokkos(LAMMPS *lmp, int narg, char **arg) :
   this->id_temp = utils::strdup(std::string(this->id)+"_temp");
   this->modify->add_compute(fmt::format("{} {} temp/kk",this->id_temp,this->group->names[this->igroup]));
   this->tcomputeflag = 1;
+
+  // the velocities are scaled by FixNHKokkos::nh_v_temp(), which the
+  // device-resident thermostat chain reproduces
+
+  this->chain_device_style = true;
 }
 
 namespace LAMMPS_NS {

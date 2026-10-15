@@ -104,6 +104,7 @@ class FixNHKokkos : public FixNH {
 
   static constexpr int CHAIN_MAX = 16;    // longest chain integrated on the device
 
+  bool chain_device_style;   // the style scales velocities with nh_v_temp() of this class
   bool chain_on_device;      // chain integrated by TagFixNH_nhc_temp
   bool chain_device_newer;   // device chain state is newer than the host copy
   bool chain_refresh;        // the chain update starts from d_kinetic
