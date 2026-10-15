@@ -576,6 +576,10 @@ void VerletKokkos::force_clear()
 
   atomKK->k_f.clear_sync_state(); // ignore host forces/torques since device views
   atomKK->k_torque.clear_sync_state(); //   will be cleared below
+  if (atom->sp_flag) { // magnetic forces are cleared below for the same reason
+    atomKK->k_fm.clear_sync_state();
+    atomKK->k_fm_long.clear_sync_state();
+  }
 
   // clear force on all particles
   // if either newton flag is set, also include ghosts

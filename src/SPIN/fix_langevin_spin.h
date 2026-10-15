@@ -26,27 +26,18 @@ namespace LAMMPS_NS {
 
 class FixLangevinSpin : public Fix {
  public:
-  int tdamp_flag, temp_flag;    // damping and temperature flags
-
   FixLangevinSpin(class LAMMPS *, int, char **);
-  ~FixLangevinSpin() override;
+
   int setmask() override;
   void init() override;
   void setup(int) override;
-  void add_tdamping(double *, double *);    // add transverse damping
-  void add_temperature(double[3]);
-  void compute_single_langevin(int, double *, double *);
+  void post_force(int) override;
 
- protected:
-  double alpha_t;       // transverse mag. damping
-  double dts;           // magnetic timestep
-  double temp;          // spin bath temperature
-  double D, sigma;      // bath intensity var.
-  double gil_factor;    // gilbert's prefactor
+ private:
+  double t_start, t_stop, t_period;
+  int seed, zero_flag;
 
-  int nlevels_respa;
-  class RanMars *random;
-  int seed;
+  double target_temperature() const;
 };
 
 }    // namespace LAMMPS_NS

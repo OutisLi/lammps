@@ -20,12 +20,14 @@
 #include "domain.h"
 #include "error.h"
 #include "fix.h"
+#include "force.h"
 #include "group.h"
 #include "input.h"
 #include "lattice.h"
 #include "memory.h"
 #include "modify.h"
 #include "random_park.h"
+#include "SPIN/spin_counter_rng.h"
 #include "variable.h"
 
 #include <cmath>
@@ -90,6 +92,8 @@ void Velocity::command(int narg, char **arg)
   bias_flag = 0;
   loop_flag = ALL;
   scale_flag = 1;
+  spin_create_flag = 0;
+  spin_mass_scale = 1.0;
 
   // read options from end of input line
   // change defaults as options specify
@@ -128,6 +132,7 @@ void Velocity::command(int narg, char **arg)
     double t_desired = utils::numeric(FLERR,arg[2],false,lmp);
     int seed = utils::inumeric(FLERR,arg[3],false,lmp);
     create(t_desired,seed);
+    if (spin_create_flag) create_spin(t_desired,seed);
   } else if (style == SET) set(narg-2,&arg[2]);
   else if (style == SCALE) scale(narg-2,&arg[2]);
   else if (style == RAMP) ramp(narg-2,&arg[2]);
@@ -152,6 +157,74 @@ void Velocity::init_external(const char *extgroup)
   loop_flag = ALL;
   scale_flag = 1;
   bias_flag = 0;
+  spin_create_flag = 0;
+  spin_mass_scale = 1.0;
+}
+
+/* ---------------------------------------------------------------------- */
+
+void Velocity::create_spin(double t_desired, int seed)
+{
+  if (!atom->sp_flag || !atom->spin_velocity || !atom->spin_mass)
+    error->all(FLERR, "Velocity spin yes requires atom style spin");
+
+  double **sp = atom->sp;
+  double **spin_velocity = atom->spin_velocity;
+  double *spin_mass = atom->spin_mass;
+  double *mass = atom->mass;
+  int *type = atom->type;
+  int *mask = atom->mask;
+  tagint *tag = atom->tag;
+  int nlocal = atom->nlocal;
+
+  int local_dof = 0;
+  double local_two_ke = 0.0;
+  for (int i = 0; i < nlocal; i++) {
+    if (!(mask[i] & groupbit)) continue;
+    if (sp[i][3] > 0.0) {
+      spin_mass[i] = mass[type[i]] * spin_mass_scale;
+      const double inverse_sqrt_mass = 1.0 / sqrt(spin_mass[i]);
+      spin_velocity[i][0] = inverse_sqrt_mass *
+        SpinCounterRNG::gaussian(seed, 0, tag[i], 0,
+                                 SpinCounterRNG::Stream::VELOCITY_INITIALIZATION);
+      spin_velocity[i][1] = inverse_sqrt_mass *
+        SpinCounterRNG::gaussian(seed, 0, tag[i], 1,
+                                 SpinCounterRNG::Stream::VELOCITY_INITIALIZATION);
+      spin_velocity[i][2] = inverse_sqrt_mass *
+        SpinCounterRNG::gaussian(seed, 0, tag[i], 2,
+                                 SpinCounterRNG::Stream::VELOCITY_INITIALIZATION);
+      local_dof += 3;
+      local_two_ke += spin_mass[i] *
+        (spin_velocity[i][0] * spin_velocity[i][0] +
+         spin_velocity[i][1] * spin_velocity[i][1] +
+         spin_velocity[i][2] * spin_velocity[i][2]);
+    } else {
+      spin_mass[i] = 0.0;
+      spin_velocity[i][0] = 0.0;
+      spin_velocity[i][1] = 0.0;
+      spin_velocity[i][2] = 0.0;
+    }
+  }
+
+  int global_dof = 0;
+  double global_two_ke = 0.0;
+  MPI_Allreduce(&local_dof, &global_dof, 1, MPI_INT, MPI_SUM, world);
+  MPI_Allreduce(&local_two_ke, &global_two_ke, 1, MPI_DOUBLE, MPI_SUM, world);
+  global_two_ke *= force->mvv2e;
+
+  if (global_dof == 0)
+    error->all(FLERR, "Velocity spin yes found no atoms with nonzero spin");
+  if (global_two_ke <= 0.0)
+    error->all(FLERR, "Cannot rescale zero spin kinetic energy");
+
+  const double current_temperature = global_two_ke / (global_dof * force->boltz);
+  const double scale = sqrt(t_desired / current_temperature);
+  for (int i = 0; i < nlocal; i++) {
+    if (!(mask[i] & groupbit) || spin_mass[i] <= 0.0) continue;
+    spin_velocity[i][0] *= scale;
+    spin_velocity[i][1] *= scale;
+    spin_velocity[i][2] *= scale;
+  }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -890,6 +963,16 @@ void Velocity::options(int narg, char **arg)
       else if (strcmp(arg[iarg+1],"lattice") == 0) scale_flag = 1;
       else
         error->all(FLERR, iarg + 1 + ioffs, "Unknown velocity units argument: {}", arg[iarg+1]);
+      iarg += 2;
+    } else if (strcmp(arg[iarg],"spin") == 0) {
+      if (iarg+2 > narg) utils::missing_cmd_args(FLERR, "velocity spin", error);
+      spin_create_flag = utils::logical(FLERR,arg[iarg+1],false,lmp);
+      iarg += 2;
+    } else if (strcmp(arg[iarg],"spmass") == 0) {
+      if (iarg+2 > narg) utils::missing_cmd_args(FLERR, "velocity spmass", error);
+      spin_mass_scale = utils::numeric(FLERR,arg[iarg+1],false,lmp);
+      if (spin_mass_scale <= 0.0)
+        error->all(FLERR, iarg + 1 + ioffs, "Velocity spin mass scale must be > 0.0");
       iarg += 2;
     } else error->all(FLERR, iarg + ioffs, "Unknown velocity keyword: {}", arg[iarg]);
   }

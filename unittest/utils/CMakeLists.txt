@@ -213,6 +213,13 @@ add_executable(test_random test_random.cpp)
 target_link_libraries(test_random PRIVATE lammps GTest::GMockMain)
 add_test(NAME Random COMMAND test_random)
 
+if(PKG_SPIN)
+  add_executable(test_spin_counter_rng test_spin_counter_rng.cpp)
+  target_include_directories(test_spin_counter_rng PRIVATE ${LAMMPS_SOURCE_DIR}/SPIN)
+  target_link_libraries(test_spin_counter_rng PRIVATE lammps GTest::GMockMain)
+  add_test(NAME SpinCounterRNG COMMAND test_spin_counter_rng)
+endif()
+
 add_executable(test_tabular_function test_tabular_function.cpp)
 target_link_libraries(test_tabular_function PRIVATE lammps GTest::GMockMain)
 add_test(NAME TabularFunction COMMAND test_tabular_function)

@@ -912,6 +912,10 @@ void Thermo::parse_fields(const std::string &str)
     } else if (word == "ke") {
       addfield("KinEng", &Thermo::compute_ke, FLOAT);
       index_temp = add_compute(id_temp, SCALAR);
+    } else if (word == "ske") {
+      if (!atom->sp_flag)
+        error->all(FLERR, "Thermo keyword ske requires atom style spin");
+      addfield("SpinKinEng", &Thermo::compute_ske, FLOAT);
     } else if (word == "etotal") {
       addfield("TotEng", &Thermo::compute_etotal, FLOAT);
       index_temp = add_compute(id_temp, SCALAR);
@@ -1475,6 +1479,9 @@ int Thermo::evaluate_keyword(const std::string &word, double *answer)
     check_temp(word);
     compute_ke();
 
+  } else if (word == "ske") {
+    compute_ske();
+
   } else if (word == "etotal") {
     check_pe(word);
     check_temp(word);
@@ -1993,12 +2000,41 @@ void Thermo::compute_ke()
 
 /* ---------------------------------------------------------------------- */
 
+void Thermo::compute_ske()
+{
+  if (!atom->sp_flag || !atom->spin_velocity || !atom->spin_mass)
+    error->all(FLERR, "Spin kinetic energy requires initialized Newtonian spin state");
+
+  double **spin_velocity = atom->spin_velocity;
+  double *spin_mass = atom->spin_mass;
+  double local_energy = 0.0;
+
+  for (int i = 0; i < atom->nlocal; i++) {
+    if (spin_mass[i] <= 0.0) continue;
+    local_energy += 0.5 * spin_mass[i] *
+      (spin_velocity[i][0] * spin_velocity[i][0] +
+       spin_velocity[i][1] * spin_velocity[i][1] +
+       spin_velocity[i][2] * spin_velocity[i][2]);
+  }
+
+  MPI_Allreduce(&local_energy, &dvalue, 1, MPI_DOUBLE, MPI_SUM, world);
+  dvalue *= force->mvv2e;
+  if (normflag) dvalue /= natoms;
+}
+
+/* ---------------------------------------------------------------------- */
+
 void Thermo::compute_etotal()
 {
   compute_pe();
   double dvalue_pe = dvalue;
   compute_ke();
   dvalue += dvalue_pe;
+  if (atom->sp_flag && atom->spin_velocity && atom->spin_mass) {
+    const double lattice_energy = dvalue;
+    compute_ske();
+    dvalue += lattice_energy;
+  }
 }
 
 /* ---------------------------------------------------------------------- */

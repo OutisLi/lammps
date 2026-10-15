@@ -26,9 +26,11 @@
 
 #include "atom_kokkos.h"
 #include "atom_masks.h"
+#include "comm.h"
 #include "domain.h"
 #include "error.h"
 #include "fix.h"
+#include "kokkos.h"
 #include "memory_kokkos.h"
 #include "modify.h"
 
@@ -50,6 +52,23 @@ AtomVecKokkos(lmp), AtomVecSpin(lmp)
 void AtomVecSpinKokkos::init()
 {
   AtomVecSpin::init();
+
+  // The Newtonian spin velocity and inertia are read and written only by host
+  // fixes, so they are kept as plain host arrays rather than dual views: a
+  // device residency they never use would cost a synchronization per step.
+  // Device sorting permutes the dual views alone, which would separate the
+  // spin state from its atoms, so this style selects host sorting the way the
+  // other modes that cannot follow a device permutation do. The setting is
+  // made on the package rather than on the atom class because AtomKokkos::init
+  // copies it from there immediately after this call.
+  if (!lmp->kokkos->sort_legacy) {
+    lmp->kokkos->sort_legacy = 1;
+    lmp->kokkos->sort_changed = 1;
+    if (comm->me == 0)
+      error->warning(FLERR,
+                     "Newtonian spin state is not (yet) compatible with Kokkos "
+                     "sorting on device, switching to legacy host sorting");
+  }
 
   set_atom_masks();
 }
@@ -88,6 +107,11 @@ void AtomVecSpinKokkos::grow(int n)
   memoryKK->grow_kokkos(atomKK->k_sp,atomKK->sp,nmax,"atom:sp");
   memoryKK->grow_kokkos(atomKK->k_fm,atomKK->fm,nmax,"atom:fm");
   memoryKK->grow_kokkos(atomKK->k_fm_long,atomKK->fm_long,nmax,"atom:fm_long");
+
+  // allocating Newtonian spin state, which stays on the host
+
+  memory->grow(atomKK->spin_velocity,nmax,3,"atom:spin_velocity");
+  memory->grow(atomKK->spin_mass,nmax,"atom:spin_mass");
 
   grow_pointers();
   atomKK->sync(Host,ALL_MASK);
@@ -136,6 +160,9 @@ void AtomVecSpinKokkos::grow_pointers()
   fm_long = atomKK->fm_long;
   d_fm_long = atomKK->k_fm_long.view_device();
   h_fm_long = atomKK->k_fm_long.view_hostkk();
+
+  spin_velocity = atomKK->spin_velocity;
+  spin_mass = atomKK->spin_mass;
 }
 
 /* ----------------------------------------------------------------------

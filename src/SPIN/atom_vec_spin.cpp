@@ -49,16 +49,16 @@ AtomVecSpin::AtomVecSpin(LAMMPS *lmp) : AtomVec(lmp)
   // order of fields in a string does not matter
   // except: fields_data_atom & fields_data_vel must match data file
 
-  fields_grow = {"sp", "fm", "fm_long"};
-  fields_copy = {"sp"};
+  fields_grow = {"sp", "fm", "fm_long", "spin_velocity", "spin_mass"};
+  fields_copy = {"sp", "spin_velocity", "spin_mass"};
   fields_comm = {"sp"};
-  fields_comm_vel = {"sp"};
+  fields_comm_vel = {"sp", "spin_velocity"};
   fields_reverse = {"fm", "fm_long"};
   fields_border = {"sp"};
-  fields_border_vel = {"sp"};
-  fields_exchange = {"sp"};
-  fields_restart = {"sp"};
-  fields_create = {"sp"};
+  fields_border_vel = {"sp", "spin_velocity"};
+  fields_exchange = {"sp", "spin_velocity", "spin_mass"};
+  fields_restart = {"sp", "spin_velocity", "spin_mass"};
+  fields_create = {"sp", "spin_velocity", "spin_mass"};
   fields_data_atom = {"id", "type", "x", "sp"};
   fields_data_vel = {"id", "v"};
 
@@ -75,6 +75,8 @@ void AtomVecSpin::grow_pointers()
   sp = atom->sp;
   fm = atom->fm;
   fm_long = atom->fm_long;
+  spin_velocity = atom->spin_velocity;
+  spin_mass = atom->spin_mass;
 }
 
 /* ----------------------------------------------------------------------
@@ -90,6 +92,18 @@ void AtomVecSpin::force_clear(int n, size_t nbytes)
 }
 
 /* ----------------------------------------------------------------------
+   initialize Newtonian spin state for a newly created atom
+------------------------------------------------------------------------- */
+
+void AtomVecSpin::create_atom_post(int ilocal)
+{
+  spin_velocity[ilocal][0] = 0.0;
+  spin_velocity[ilocal][1] = 0.0;
+  spin_velocity[ilocal][2] = 0.0;
+  spin_mass[ilocal] = 0.0;
+}
+
+/* ----------------------------------------------------------------------
    modify what AtomVec::data_atom() just unpacked
    or initialize other atom quantities
 ------------------------------------------------------------------------- */
@@ -101,6 +115,10 @@ void AtomVecSpin::data_atom_post(int ilocal)
   sp_one[0] *= norm;
   sp_one[1] *= norm;
   sp_one[2] *= norm;
+  spin_velocity[ilocal][0] = 0.0;
+  spin_velocity[ilocal][1] = 0.0;
+  spin_velocity[ilocal][2] = 0.0;
+  spin_mass[ilocal] = 0.0;
 }
 
 /* ----------------------------------------------------------------------

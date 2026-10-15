@@ -167,6 +167,7 @@ class Thermo : protected Pointers {
   void compute_press();
   void compute_pe();
   void compute_ke();
+  void compute_ske();
   void compute_etotal();
 
   void compute_evdwl();

@@ -25,6 +25,7 @@ The LAMMPS distribution includes the following files and directories:
 README                     this file
 LICENSE                    the GNU General Public License (GPLv2)
 CITATION.cff               Citation information for LAMMPS in CFF format
+NEWTONIAN_SPIN.md          Newtonian variable-magnitude spin guide
 bench                      benchmark inputs
 cmake                      CMake build files
 doc                        documentation
@@ -51,6 +52,12 @@ https://docs.lammps.org/Errors.html         How to interpret and debug errors
 https://docs.lammps.org/Library.html        LAMMPS library interfaces
 https://docs.lammps.org/Modify.html         how to modify and extend LAMMPS
 https://docs.lammps.org/Developer.html      LAMMPS developer info
+
+This fork provides Newtonian variable-magnitude spin dynamics through the
+built-in dpa4spin/kk style. It uses an external DeePMD-kit source tree and
+installation, applying a small interface patch only in the LAMMPS build
+directory. The external DeePMD-kit source and libraries remain unchanged.
+Read NEWTONIAN_SPIN.md for the supported models and installation procedure.
 
 You can also create these doc pages locally:
 
