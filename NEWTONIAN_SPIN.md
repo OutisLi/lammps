@@ -175,8 +175,9 @@ pair_style dpa4spin/kk model.pt2
 
 Keep the Newtonian integration fixes unsuffixed. A global `-sf kk` can select
 `nvt/kk` or `npt/kk`, which do not implement this fork's spin state. The
-`spin/kk` atom style stores Newtonian spin velocity and inertia on the host
-and selects host sorting so those arrays follow atom permutations.
+`spin/kk` atom style stores Newtonian spin velocity and inertia on the host;
+Kokkos device sorting applies its atom permutation to those host arrays, so
+they follow their atoms.
 
 ### 5. Export a compatible DeePMD native-spin model
 
@@ -646,6 +647,12 @@ The field registration covers:
 Ghost atoms do not carry spin velocity or inertia because DeePMD inference
 only needs ghost `sp`. This avoids unnecessary per-step communication.
 
+Under Kokkos, `src/KOKKOS/atom_vec_spin_kokkos.cpp` keeps both arrays on the
+host, where the Newtonian fixes read and write them. Device sorting permutes
+the dual views on the device and applies the same permutation, copied to the
+host, to these two arrays, so sorting does not move the other per-atom arrays
+through the host.
+
 #### 19.3 Newtonian integrator
 
 `src/SPIN/fix_nve_spin.{h,cpp}` replaces the upstream fixed-magnitude
@@ -1096,8 +1103,9 @@ Before distributing a port:
 - Upstream `spin/*` pair and precession force conventions cannot be mixed.
 - RESPA is unsupported.
 - Suffixed Newtonian spin Nose-Hoover styles are unsupported.
-- `atom_style spin/kk` holds the Newtonian spin state on the host and
-  therefore sorts atoms on the host rather than on the device.
+- The Newtonian integrators and spin thermostats run on the host, so a Kokkos
+  run moves positions, spins, forces, and magnetic forces between host and
+  device every step.
 - The NVT/NPT extension uses one Nose-Hoover chain for lattice and spin
   kinetic modes; it does not provide independent parallel and transverse
   chains.

@@ -26,13 +26,13 @@
 
 #include "atom_kokkos.h"
 #include "atom_masks.h"
-#include "comm.h"
 #include "domain.h"
 #include "error.h"
 #include "fix.h"
-#include "kokkos.h"
 #include "memory_kokkos.h"
 #include "modify.h"
+
+#include <vector>
 
 using namespace LAMMPS_NS;
 
@@ -56,19 +56,8 @@ void AtomVecSpinKokkos::init()
   // The Newtonian spin velocity and inertia are read and written only by host
   // fixes, so they are kept as plain host arrays rather than dual views: a
   // device residency they never use would cost a synchronization per step.
-  // Device sorting permutes the dual views alone, which would separate the
-  // spin state from its atoms, so this style selects host sorting the way the
-  // other modes that cannot follow a device permutation do. The setting is
-  // made on the package rather than on the atom class because AtomKokkos::init
-  // copies it from there immediately after this call.
-  if (!lmp->kokkos->sort_legacy) {
-    lmp->kokkos->sort_legacy = 1;
-    lmp->kokkos->sort_changed = 1;
-    if (comm->me == 0)
-      error->warning(FLERR,
-                     "Newtonian spin state is not (yet) compatible with Kokkos "
-                     "sorting on device, switching to legacy host sorting");
-  }
+  // Device sorting applies its permutation to them on the host, see
+  // sort_kokkos().
 
   set_atom_masks();
 }
@@ -182,6 +171,28 @@ void AtomVecSpinKokkos::sort_kokkos(Kokkos::BinSort<KeyViewType, BinOp> &Sorter)
   Sorter.sort(LMPDeviceType(), d_sp);
 
   atomKK->modified(Device, TAG_MASK|TYPE_MASK|MASK_MASK|IMAGE_MASK|X_MASK|V_MASK|SP_MASK);
+
+  // The Newtonian spin velocity and inertia live on the host only, so the
+  // device permutation is applied to them there: sorted slot i receives the
+  // state of the atom previously in slot permute(i), as for the dual views.
+
+  auto h_permute = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(),
+                                                       Sorter.get_permute_vector());
+  const int nsort = h_permute.extent(0);
+  std::vector<double> sorted_velocity(3 * nsort), sorted_mass(nsort);
+  for (int i = 0; i < nsort; i++) {
+    const int j = h_permute(i);
+    sorted_velocity[3 * i + 0] = spin_velocity[j][0];
+    sorted_velocity[3 * i + 1] = spin_velocity[j][1];
+    sorted_velocity[3 * i + 2] = spin_velocity[j][2];
+    sorted_mass[i] = spin_mass[j];
+  }
+  for (int i = 0; i < nsort; i++) {
+    spin_velocity[i][0] = sorted_velocity[3 * i + 0];
+    spin_velocity[i][1] = sorted_velocity[3 * i + 1];
+    spin_velocity[i][2] = sorted_velocity[3 * i + 2];
+    spin_mass[i] = sorted_mass[i];
+  }
 }
 
 /* ----------------------------------------------------------------------
