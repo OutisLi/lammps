@@ -177,7 +177,10 @@ Keep the Newtonian integration fixes unsuffixed. A global `-sf kk` can select
 `nvt/kk` or `npt/kk`, which do not implement this fork's spin state. The
 `spin/kk` atom style stores Newtonian spin velocity and inertia on the host;
 Kokkos device sorting applies its atom permutation to those host arrays, so
-they follow their atoms.
+they follow their atoms. Because the Newtonian integrators advance positions
+and spins on the host, the KOKKOS package also packs the forward
+communication of ghost atoms on the host while one of them is active, unless
+`package kokkos comm` or `comm/forward` is set explicitly.
 
 ### 5. Export a compatible DeePMD native-spin model
 
@@ -666,6 +669,16 @@ The implementation:
 - verifies that inertia was initialized;
 - rejects incompatible force producers and integration modes.
 
+Under Kokkos the fix runs on the host and declares the per-atom arrays it
+reads and writes through `datamask_read` and `datamask_modify`, so the
+KOKKOS package synchronizes only positions, velocities, spins, forces,
+magnetic forces, types, per-atom masses, and group masks around it.
+`KokkosLMP::select_forward_comm()` in `src/KOKKOS/kokkos.cpp` makes the
+KOKKOS comm styles pack forward communication on the host while a
+time-integration fix runs on the host and no `comm` or `comm/forward` setting
+was given; the coordinates are then not copied to the device for packing and
+back for the next step.
+
 #### 19.4 Langevin thermostat
 
 `src/SPIN/fix_langevin_spin.{h,cpp}` implements Cartesian damping and Gaussian
@@ -1104,8 +1117,8 @@ Before distributing a port:
 - RESPA is unsupported.
 - Suffixed Newtonian spin Nose-Hoover styles are unsupported.
 - The Newtonian integrators and spin thermostats run on the host, so a Kokkos
-  run moves positions, spins, forces, and magnetic forces between host and
-  device every step.
+  run copies forces and magnetic forces to the host and positions and spins
+  to the device every step.
 - The NVT/NPT extension uses one Nose-Hoover chain for lattice and spin
   kinetic modes; it does not provide independent parallel and transverse
   chains.

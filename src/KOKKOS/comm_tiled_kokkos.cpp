@@ -75,6 +75,7 @@ CommTiledKokkos::~CommTiledKokkos()
 void CommTiledKokkos::init()
 {
   atomKK = (AtomKokkos *) atom;
+  lmp->kokkos->select_forward_comm();
   exchange_comm_legacy = lmp->kokkos->exchange_comm_legacy;
   forward_comm_legacy = lmp->kokkos->forward_comm_legacy;
   forward_pair_comm_legacy = lmp->kokkos->forward_pair_comm_legacy;

@@ -382,6 +382,11 @@ KokkosLMP::KokkosLMP(LAMMPS *lmp, int narg, char **arg) : Pointers(lmp)
     exchange_comm_on_host = forward_comm_on_host = reverse_comm_on_host = 0;
   }
 
+  // until set with the comm or comm/forward keyword, select_forward_comm()
+  // chooses where forward communication runs
+
+  forward_comm_set = 0;
+
 #ifdef LMP_KOKKOS_GPU
 
   // check and warn about GPU-aware MPI availability when using multiple MPI tasks
@@ -589,6 +594,7 @@ void KokkosLMP::accelerator(int narg, char **arg)
 
         exchange_comm_on_host = forward_comm_on_host = reverse_comm_on_host = 0;
       } else error->all(FLERR,"Illegal package kokkos command");
+      forward_comm_set = 1;
       iarg += 2;
     } else if (strcmp(arg[iarg],"comm/exchange") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal package kokkos command");
@@ -613,6 +619,7 @@ void KokkosLMP::accelerator(int narg, char **arg)
         forward_comm_on_host = 0;
       } else error->all(FLERR,"Illegal package kokkos command");
       forward_comm_changed = 0;
+      forward_comm_set = 1;
       iarg += 2;
     } else if (strcmp(arg[iarg],"comm/pair/forward") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal package kokkos command");
@@ -995,4 +1002,22 @@ void KokkosLMP::respa_check()
   if (!sort_legacy) refuse("atom sorting");
   if (!atom_map_legacy) refuse("the atom map");
 #endif
+}
+
+/* ----------------------------------------------------------------------
+   choose whether forward communication packs on the host or the device,
+   unless set with the comm or comm/forward keyword.  A time integration
+   fix that runs on the host updates the coordinates there every step, so
+   packing them on the device would copy them to the device and back to
+   the host for the next step.  Called from the init() of the KOKKOS comm
+   styles.
+------------------------------------------------------------------------- */
+
+void KokkosLMP::select_forward_comm()
+{
+  if (forward_comm_set || forward_comm_legacy) return;
+
+  forward_comm_on_host = 0;
+  for (auto *fix : modify->get_fix_list())
+    if (fix->time_integrate && (fix->execution_space != Device)) forward_comm_on_host = 1;
 }

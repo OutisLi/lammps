@@ -74,6 +74,7 @@ class KokkosLMP : protected Pointers {
   int perf_nsamples;
   int perf_mode;
   double perf_rel_tol;
+  int forward_comm_set;
 
   static int is_finalized;
   static int init_ngpus;
@@ -85,6 +86,7 @@ class KokkosLMP : protected Pointers {
   void accelerator(int, char **);
   void newton_check();
   void respa_check();
+  void select_forward_comm();
   bigint neigh_count(int);
 
   // warn (on rank 0) when a KOKKOS-enabled style relies on an internal helper
