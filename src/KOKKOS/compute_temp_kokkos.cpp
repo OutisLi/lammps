@@ -42,10 +42,59 @@ ComputeTempKokkos<DeviceType>::ComputeTempKokkos(LAMMPS *lmp, int narg, char **a
 template<class DeviceType>
 double ComputeTempKokkos<DeviceType>::compute_scalar()
 {
+  invoked_scalar = update->ntimestep;
+
+  CTEMP t_kk;
+  reduce_scalar(t_kk);
+  double t = t_kk.t0; // could make this more efficient
+
+  MPI_Allreduce(&t,&scalar,1,MPI_DOUBLE,MPI_SUM,world);
+  if (dynamic) dof_compute();
+  if (dof < 0.0 && natoms_temp > 0.0)
+    error->all(FLERR,"Temperature compute degrees of freedom < 0");
+  scalar *= tfactor;
+
+  return scalar;
+}
+
+/* ----------------------------------------------------------------------
+   launch the reduction of compute_scalar() into the device scalar sum and
+   return the factor that converts sum.t0 into the temperature, without
+   waiting for the device; the MPI sum of compute_scalar() is the identity on
+   one rank and the degrees of freedom are fixed, see scalar_on_device().
+   The host value scalar is not updated, so it is marked as not computed on
+   this step and a host reader recomputes it
+------------------------------------------------------------------------- */
+
+template<class DeviceType>
+double ComputeTempKokkos<DeviceType>::compute_scalar_device(const Kokkos::View<CTEMP, DeviceType> &sum)
+{
+  invoked_scalar = -1;
+  reduce_scalar(sum);
+  if (dof < 0.0 && natoms_temp > 0.0)
+    error->all(FLERR,"Temperature compute degrees of freedom < 0");
+  return tfactor;
+}
+
+/* ---------------------------------------------------------------------- */
+
+template<class DeviceType>
+bool ComputeTempKokkos<DeviceType>::scalar_on_device() const
+{
+  return !dynamic && comm->nprocs == 1;
+}
+
+/* ----------------------------------------------------------------------
+   reduce the kinetic sum of compute_scalar() into result, a host value or a
+   device view; both run the same reduction, so they sum in the same order
+------------------------------------------------------------------------- */
+
+template<class DeviceType>
+template<class ResultType>
+void ComputeTempKokkos<DeviceType>::reduce_scalar(ResultType &&result)
+{
   atomKK->sync(execution_space,datamask_read);
   atomKK->k_mass.sync<DeviceType>();
-
-  invoked_scalar = update->ntimestep;
 
   v = atomKK->k_v.view<DeviceType>();
   if (atomKK->rmass)
@@ -56,25 +105,12 @@ double ComputeTempKokkos<DeviceType>::compute_scalar()
   mask = atomKK->k_mask.view<DeviceType>();
   int nlocal = atom->nlocal;
 
-  double t = 0.0;
-  CTEMP t_kk;
-
   copymode = 1;
   if (atomKK->rmass)
-    Kokkos::parallel_reduce(Kokkos::RangePolicy<DeviceType, TagComputeTempScalar<1> >(0,nlocal),*this,t_kk);
+    Kokkos::parallel_reduce(Kokkos::RangePolicy<DeviceType, TagComputeTempScalar<1> >(0,nlocal),*this,result);
   else
-    Kokkos::parallel_reduce(Kokkos::RangePolicy<DeviceType, TagComputeTempScalar<0> >(0,nlocal),*this,t_kk);
+    Kokkos::parallel_reduce(Kokkos::RangePolicy<DeviceType, TagComputeTempScalar<0> >(0,nlocal),*this,result);
   copymode = 0;
-
-  t = t_kk.t0; // could make this more efficient
-
-  MPI_Allreduce(&t,&scalar,1,MPI_DOUBLE,MPI_SUM,world);
-  if (dynamic) dof_compute();
-  if (dof < 0.0 && natoms_temp > 0.0)
-    error->all(FLERR,"Temperature compute degrees of freedom < 0");
-  scalar *= tfactor;
-
-  return scalar;
 }
 
 template<class DeviceType>

@@ -67,6 +67,12 @@ class ComputeTempKokkos : public ComputeTemp {
   double compute_scalar() override;
   void compute_vector() override;
 
+  // compute_scalar() without its host round trip: the kinetic sum is reduced
+  // into a device scalar and the factor that converts sum.t0 into the
+  // temperature is returned. Valid when scalar_on_device() holds.
+  double compute_scalar_device(const Kokkos::View<CTEMP, DeviceType> &sum);
+  bool scalar_on_device() const;
+
   template<int RMASS>
 // NOLINTNEXTLINE
   KOKKOS_INLINE_FUNCTION
@@ -78,6 +84,9 @@ class ComputeTempKokkos : public ComputeTemp {
   void operator()(TagComputeTempVector<RMASS>, const int&, CTEMP&) const;
 
  protected:
+  template<class ResultType>
+  void reduce_scalar(ResultType &&);
+
   typename AT::t_kkfloat_1d_3_randomread v;
   typename AT::t_kkfloat_1d_randomread rmass;
   typename AT::t_kkfloat_1d_randomread mass;
