@@ -37,10 +37,13 @@ class Velocity : public Command {
   int style;
   int dist_flag, sum_flag, momentum_flag, rotation_flag;
   int bias_flag, loop_flag, scale_flag;
+  int spin_create_flag;
   double xscale, yscale, zscale;
+  double spin_mass_scale;
   class Fix *rigid_fix;
   class Compute *temperature;
 
+  void create_spin(double, int);
   void set(int, char **);
   void scale(int, char **);
   void ramp(int, char **);

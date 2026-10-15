@@ -624,7 +624,7 @@ void VerletKokkos::force_clear()
   // from the setup is still claimed when the device side is claimed below, and
   // the two disagree with nothing to say which one is current
 
-  if (extraflag) {
+  if (atom->sp_flag) {
     atomKK->k_fm.clear_sync_state();
     atomKK->k_fm_long.clear_sync_state();
   }

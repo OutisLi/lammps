@@ -120,7 +120,8 @@ class Atom : protected Pointers {
 
   // SPIN package
 
-  double **sp, **fm, **fm_long;
+  double **sp, **fm, **fm_long, **spin_velocity;
+  double *spin_mass;
 
   // EFF package
 

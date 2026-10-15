@@ -1,4 +1,19 @@
-This is the LAMMPS software package.
+This is a fork of LAMMPS.
+
+The fork supports ordinary non-spin molecular dynamics simulations and adds
+optional Newtonian variable-magnitude spin dynamics for DeePMD. Standard
+non-spin nve, nvt, npt, and nph simulations retain the ordinary LAMMPS
+integration path. Classical simulations use the usual LAMMPS packages and
+build instructions; DeePMD-kit is required only for its corresponding
+interfaces.
+
+Use the official LAMMPS build and simulation documentation linked below for
+ordinary simulations. NEWTONIAN_SPIN.md describes the optional spin
+functionality, supported models, and installation procedure.
+
+Compatibility note: nve/spin and langevin/spin implement Newtonian dynamics
+in this fork. Upstream fixed-magnitude precession inputs using these styles
+require adaptation.
 
 LAMMPS stands for Large-scale Atomic/Molecular Massively Parallel
 Simulator.
@@ -24,6 +39,7 @@ The LAMMPS distribution source tarballs include the files and directories:
 
 README                     this file
 LICENSE                    the GNU General Public License (GPLv2)
+NEWTONIAN_SPIN.md          Newtonian variable-magnitude spin guide
 bench                      benchmark inputs
 cmake                      CMake build files
 doc                        documentation

@@ -170,7 +170,8 @@ Atom::Atom(LAMMPS *_lmp) : Pointers(_lmp), atom_style(nullptr), avec(nullptr)
 
   // SPIN package
 
-  sp = fm = fm_long = nullptr;
+  sp = fm = fm_long = spin_velocity = nullptr;
+  spin_mass = nullptr;
 
   // EFF package
 
@@ -498,6 +499,8 @@ void Atom::peratom_create()
   add_peratom("sp",&sp,DOUBLE,4);
   add_peratom("fm",&fm,DOUBLE,3,1);
   add_peratom("fm_long",&fm_long,DOUBLE,3,1);
+  add_peratom("spin_velocity",&spin_velocity,DOUBLE,3);
+  add_peratom("spin_mass",&spin_mass,DOUBLE,0);
 
   // EFF package
 

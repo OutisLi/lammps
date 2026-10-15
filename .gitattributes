@@ -13,3 +13,4 @@ update_codemeta.sh export-ignore
 *.gz    -text
 *.png   -text
 *.ps    -text
+cmake/patches/*.patch whitespace=-blank-at-eol

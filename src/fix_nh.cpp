@@ -31,6 +31,8 @@
 #include "modify.h"
 #include "neighbor.h"
 #include "respa.h"
+#include "spin_force_convention.h"
+#include "SPIN/spin_counter_rng.h"
 #include "update.h"
 
 #include <cmath>
@@ -116,6 +118,12 @@ FixNH::FixNH(LAMMPS *lmp, int narg, char **arg) :
   mtchain_default_flag = 1;
 
   tstat_flag = 0;
+  lattice_flag = 1;
+  spin_flag = 0;
+  spin_seed = 0;
+  spin_mass_scale = 0.0;
+  spin_lattice_temperature = 0.0;
+  spin_lattice_dof = 0.0;
   double t_period = 0.0;
 
   double p_period[6];
@@ -145,6 +153,31 @@ FixNH::FixNH(LAMMPS *lmp, int narg, char **arg) :
         error->all(FLERR, iarg + 3, "Temperature damping for fix {} cannot be <= 0.0", style);
       iarg += 4;
 
+    } else if (strcmp(arg[iarg], "mass") == 0) {
+      if (iarg + 2 > narg)
+        utils::missing_cmd_args(FLERR, fmt::format("fix {} mass", style), error);
+      spin_mass_scale = utils::numeric(FLERR, arg[iarg + 1], false, lmp);
+      if (spin_mass_scale <= 0.0)
+        error->all(FLERR, iarg + 1, "Spin mass scale for fix {} must be > 0.0", style);
+      spin_flag = 1;
+      iarg += 2;
+    } else if (strcmp(arg[iarg], "rand") == 0) {
+      if (iarg + 2 > narg)
+        utils::missing_cmd_args(FLERR, fmt::format("fix {} rand", style), error);
+      spin_seed = utils::inumeric(FLERR, arg[iarg + 1], false, lmp);
+      if (spin_seed <= 0)
+        error->all(FLERR, iarg + 1, "Spin random seed for fix {} must be > 0", style);
+      iarg += 2;
+    } else if (strcmp(arg[iarg], "lattice") == 0) {
+      if (iarg + 2 > narg)
+        utils::missing_cmd_args(FLERR, fmt::format("fix {} lattice", style), error);
+      lattice_flag = utils::logical(FLERR, arg[iarg + 1], false, lmp);
+      iarg += 2;
+    } else if (strcmp(arg[iarg], "spin") == 0) {
+      if (iarg + 2 > narg)
+        utils::missing_cmd_args(FLERR, fmt::format("fix {} spin", style), error);
+      spin_flag = utils::logical(FLERR, arg[iarg + 1], false, lmp);
+      iarg += 2;
     } else if (strcmp(arg[iarg], "iso") == 0) {
       if (iarg + 4 > narg) utils::missing_cmd_args(FLERR, fmt::format("fix {} iso", style), error);
       pcouple = XYZ;
@@ -544,7 +577,10 @@ FixNH::FixNH(LAMMPS *lmp, int narg, char **arg) :
       (p_flag[4] && p_period[4] <= 0.0) ||
       (p_flag[5] && p_period[5] <= 0.0))
     error->all(FLERR,"Fix {} damping parameters must be > 0.0", style);
-
+  if (spin_flag && !tstat_flag)
+    error->all(FLERR, "Spin integration in fix {} requires a temperature thermostat", style);
+  if (spin_flag && spin_mass_scale <= 0.0)
+    error->all(FLERR, "Spin integration in fix {} requires the mass keyword", style);
   // check that ptemp is not defined with a thermostat
   if (tstat_flag && p_temp_flag)
     error->all(FLERR,"Thermostat in fix {} is incompatible with ptemp command", style);
@@ -557,6 +593,8 @@ FixNH::FixNH(LAMMPS *lmp, int narg, char **arg) :
 
   for (int i = 0; i < 6; i++)
     if (p_flag[i]) pstat_flag = 1;
+  if (spin_flag && pstat_flag && !lattice_flag)
+    error->all(FLERR, "Longitudinal spin NPT requires lattice yes");
 
   if (pstat_flag) {
     if (p_flag[0]) box_change |= BOX_CHANGE_X;
@@ -719,6 +757,13 @@ int FixNH::setmask()
 
 void FixNH::init()
 {
+  if (spin_flag && utils::strmatch(update->integrate_style, "^respa"))
+    error->all(FLERR, "Longitudinal spin integration in fix {} does not support RESPA", style);
+  if (spin_flag && strchr(style, '/'))
+    error->all(FLERR,
+               "Longitudinal spin integration is supported only by the "
+               "unsuffixed nvt/npt styles");
+
   // recheck that dilate group has not been deleted
 
   if (allremap == 0)
@@ -803,6 +848,8 @@ void FixNH::init()
   boltz = force->boltz;
   nktv2p = force->nktv2p;
 
+  if (spin_flag) initialize_spin_state();
+
   if (force->kspace) kspace_flag = 1;
   else kspace_flag = 0;
 
@@ -831,6 +878,7 @@ void FixNH::setup(int /*vflag*/)
 
   t_current = temperature->compute_scalar();
   tdof = temperature->dof;
+  if (spin_flag) add_spin_temperature();
 
   // t_target is needed by NVT and NPT in compute_scalar()
   // If no thermostat or using fix nphug,
@@ -989,6 +1037,7 @@ void FixNH::final_integrate()
 
   t_current = temperature->compute_scalar();
   tdof = temperature->dof;
+  if (spin_flag) add_spin_temperature();
 
   // need to recompute pressure to account for change in KE
   // t_current is up-to-date, but compute_temperature is not
@@ -2082,6 +2131,7 @@ void FixNH::nhc_temp_integrate()
     // should not be necessary to explicitly recompute the temperature
 
     t_current *= factor_eta*factor_eta;
+    if (spin_flag && lattice_flag) spin_lattice_temperature *= factor_eta*factor_eta;
     kecurrent = tdof * boltz * t_current;
 
     if (eta_mass[0] > 0.0)
@@ -2269,6 +2319,7 @@ void FixNH::nh_v_press()
       }
     }
   }
+
 }
 
 /* ----------------------------------------------------------------------
@@ -2277,6 +2328,11 @@ void FixNH::nh_v_press()
 
 void FixNH::nve_v()
 {
+  if (!lattice_flag) {
+    if (spin_flag) nve_spin_v();
+    return;
+  }
+
   double dtfm;
   double **v = atom->v;
   double **f = atom->f;
@@ -2306,6 +2362,7 @@ void FixNH::nve_v()
       }
     }
   }
+  if (spin_flag) nve_spin_v();
 }
 
 /* ----------------------------------------------------------------------
@@ -2314,6 +2371,11 @@ void FixNH::nve_v()
 
 void FixNH::nve_x()
 {
+  if (!lattice_flag) {
+    if (spin_flag) nve_spin_x();
+    return;
+  }
+
   double **x = atom->x;
   double **v = atom->v;
   int *mask = atom->mask;
@@ -2329,6 +2391,188 @@ void FixNH::nve_x()
       x[i][2] += dtv * v[i][2];
     }
   }
+  if (spin_flag) nve_spin_x();
+}
+
+/* ----------------------------------------------------------------------
+   initialize Newtonian spin masses and optional fallback velocities
+-----------------------------------------------------------------------*/
+
+void FixNH::initialize_spin_state()
+{
+  if (!atom->sp_flag || !atom->spin_velocity || !atom->spin_mass)
+    error->all(FLERR, "Spin integration in fix {} requires atom style spin", style);
+  if (strcmp(update->unit_style, "metal") != 0)
+    error->all(FLERR, "Longitudinal spin integration in fix {} requires metal units", style);
+  require_cartesian_magnetic_force(
+      lmp, fmt::format("Longitudinal spin integration in fix {}", style).c_str());
+  if (!modify->get_fix_by_style("^precession/spin").empty() ||
+      !modify->get_fix_by_style("^setforce/spin").empty())
+    error->all(FLERR,
+               "Longitudinal spin integration in fix {} cannot mix Cartesian "
+               "magnetic forces with precession/spin or setforce/spin",
+               style);
+
+  double **sp = atom->sp;
+  double **spin_velocity = atom->spin_velocity;
+  double *spin_mass = atom->spin_mass;
+  double *mass = atom->mass;
+  tagint *tag = atom->tag;
+  int *type = atom->type;
+  int *mask = atom->mask;
+
+  int local_generated = 0;
+  for (int i = 0; i < atom->nlocal; i++) {
+    if (!(mask[i] & groupbit)) continue;
+    if (sp[i][3] <= 0.0) {
+      spin_mass[i] = 0.0;
+      continue;
+    }
+    if (spin_mass[i] > 0.0) continue;
+    if (spin_seed <= 0)
+      error->all(FLERR,
+                 "Fix {} requires initialized spin velocities or the rand keyword",
+                 style);
+
+    spin_mass[i] = mass[type[i]] * spin_mass_scale;
+    const double inverse_sqrt_mass = 1.0 / std::sqrt(spin_mass[i]);
+    spin_velocity[i][0] = inverse_sqrt_mass *
+      SpinCounterRNG::gaussian(spin_seed, 0, tag[i], 0,
+                               SpinCounterRNG::Stream::VELOCITY_INITIALIZATION);
+    spin_velocity[i][1] = inverse_sqrt_mass *
+      SpinCounterRNG::gaussian(spin_seed, 0, tag[i], 1,
+                               SpinCounterRNG::Stream::VELOCITY_INITIALIZATION);
+    spin_velocity[i][2] = inverse_sqrt_mass *
+      SpinCounterRNG::gaussian(spin_seed, 0, tag[i], 2,
+                               SpinCounterRNG::Stream::VELOCITY_INITIALIZATION);
+    local_generated = 1;
+  }
+
+  int generated = 0;
+  MPI_Allreduce(&local_generated, &generated, 1, MPI_INT, MPI_MAX, world);
+  if (!generated) return;
+
+  double local_state[2] = {0.0, 0.0};
+  for (int i = 0; i < atom->nlocal; i++) {
+    if (!(mask[i] & groupbit) || spin_mass[i] <= 0.0) continue;
+    local_state[0] += spin_mass[i] *
+      (spin_velocity[i][0] * spin_velocity[i][0] +
+       spin_velocity[i][1] * spin_velocity[i][1] +
+       spin_velocity[i][2] * spin_velocity[i][2]);
+    local_state[1] += 3.0;
+  }
+
+  double global_state[2];
+  MPI_Allreduce(local_state, global_state, 2, MPI_DOUBLE, MPI_SUM, world);
+  const double two_ke = global_state[0] * force->mvv2e;
+  if (global_state[1] <= 0.0 || two_ke <= 0.0)
+    error->all(FLERR, "Fix {} could not initialize active spin velocities", style);
+
+  const double current_temperature = two_ke / (global_state[1] * boltz);
+  const double scale = std::sqrt(t_start / current_temperature);
+  for (int i = 0; i < atom->nlocal; i++) {
+    if (!(mask[i] & groupbit) || spin_mass[i] <= 0.0) continue;
+    spin_velocity[i][0] *= scale;
+    spin_velocity[i][1] *= scale;
+    spin_velocity[i][2] *= scale;
+  }
+}
+
+/* ----------------------------------------------------------------------
+   add spin kinetic modes to the thermostat temperature and degrees of freedom
+-----------------------------------------------------------------------*/
+
+void FixNH::add_spin_temperature()
+{
+  // The caller supplies the ordinary lattice temperature and degrees of
+  // freedom. Only coupled spin dynamics retains a separate lattice state
+  // because spin kinetic energy contributes to temperature but not pressure.
+  spin_lattice_temperature = t_current;
+  spin_lattice_dof = tdof;
+
+  const double lattice_dof = lattice_flag ? spin_lattice_dof : 0.0;
+  double local_spin_state[2] = {0.0, 0.0};
+
+  double **spin_velocity = atom->spin_velocity;
+  double *spin_mass = atom->spin_mass;
+  int *mask = atom->mask;
+  for (int i = 0; i < atom->nlocal; i++) {
+    if (!(mask[i] & groupbit) || spin_mass[i] <= 0.0) continue;
+    local_spin_state[0] += spin_mass[i] *
+      (spin_velocity[i][0] * spin_velocity[i][0] +
+       spin_velocity[i][1] * spin_velocity[i][1] +
+       spin_velocity[i][2] * spin_velocity[i][2]);
+    local_spin_state[1] += 3.0;
+  }
+
+  double global_spin_state[2];
+  MPI_Allreduce(local_spin_state, global_spin_state, 2, MPI_DOUBLE, MPI_SUM, world);
+  const double spin_two_ke = global_spin_state[0] * force->mvv2e;
+
+  tdof = lattice_dof + global_spin_state[1];
+  if (tdof <= 0.0)
+    error->all(FLERR, "Fix {} has no active thermostat degrees of freedom", style);
+  const double total_two_ke =
+    lattice_dof * boltz * spin_lattice_temperature + spin_two_ke;
+  t_current = total_two_ke / (tdof * boltz);
+}
+
+/* ----------------------------------------------------------------------
+   perform half-step update of Newtonian spin velocities
+-----------------------------------------------------------------------*/
+
+void FixNH::nve_spin_v()
+{
+  double **spin_velocity = atom->spin_velocity;
+  double **fm = atom->fm;
+  double *spin_mass = atom->spin_mass;
+  int *mask = atom->mask;
+  int nlocal = atom->nlocal;
+  if (igroup == atom->firstgroup) nlocal = atom->nfirst;
+
+  for (int i = 0; i < nlocal; i++) {
+    if (!(mask[i] & groupbit) || spin_mass[i] <= 0.0) continue;
+    const double scale = dtf / spin_mass[i];
+    spin_velocity[i][0] += scale * fm[i][0];
+    spin_velocity[i][1] += scale * fm[i][1];
+    spin_velocity[i][2] += scale * fm[i][2];
+  }
+}
+
+/* ----------------------------------------------------------------------
+   perform full-step update of Newtonian spin coordinates
+-----------------------------------------------------------------------*/
+
+void FixNH::nve_spin_x()
+{
+  double **sp = atom->sp;
+  double **spin_velocity = atom->spin_velocity;
+  double *spin_mass = atom->spin_mass;
+  int *mask = atom->mask;
+  int nlocal = atom->nlocal;
+  if (igroup == atom->firstgroup) nlocal = atom->nfirst;
+
+  for (int i = 0; i < nlocal; i++) {
+    if (!(mask[i] & groupbit) || spin_mass[i] <= 0.0) continue;
+
+    double spin[3] = {
+      sp[i][0] * sp[i][3] + dtv * spin_velocity[i][0],
+      sp[i][1] * sp[i][3] + dtv * spin_velocity[i][1],
+      sp[i][2] * sp[i][3] + dtv * spin_velocity[i][2]
+    };
+    const double magnitude =
+      std::sqrt(spin[0] * spin[0] + spin[1] * spin[1] + spin[2] * spin[2]);
+    if (!std::isfinite(magnitude))
+      error->one(FLERR, "Non-numeric spin magnitude - simulation unstable");
+
+    sp[i][3] = magnitude;
+    if (magnitude > 0.0) {
+      const double inverse_magnitude = 1.0 / magnitude;
+      sp[i][0] = spin[0] * inverse_magnitude;
+      sp[i][1] = spin[1] * inverse_magnitude;
+      sp[i][2] = spin[2] * inverse_magnitude;
+    }
+  }
 }
 
 /* ----------------------------------------------------------------------
@@ -2342,23 +2586,36 @@ void FixNH::nh_v_temp()
   int nlocal = atom->nlocal;
   if (igroup == atom->firstgroup) nlocal = atom->nfirst;
 
-  if (which == NOBIAS) {
-    for (int i = 0; i < nlocal; i++) {
-      if (mask[i] & groupbit) {
-        v[i][0] *= factor_eta;
-        v[i][1] *= factor_eta;
-        v[i][2] *= factor_eta;
+  if (lattice_flag) {
+    if (which == NOBIAS) {
+      for (int i = 0; i < nlocal; i++) {
+        if (mask[i] & groupbit) {
+          v[i][0] *= factor_eta;
+          v[i][1] *= factor_eta;
+          v[i][2] *= factor_eta;
+        }
+      }
+    } else if (which == BIAS) {
+      for (int i = 0; i < nlocal; i++) {
+        if (mask[i] & groupbit) {
+          temperature->remove_bias(i,v[i]);
+          v[i][0] *= factor_eta;
+          v[i][1] *= factor_eta;
+          v[i][2] *= factor_eta;
+          temperature->restore_bias(i,v[i]);
+        }
       }
     }
-  } else if (which == BIAS) {
+  }
+
+  if (spin_flag) {
+    double **spin_velocity = atom->spin_velocity;
+    double *spin_mass = atom->spin_mass;
     for (int i = 0; i < nlocal; i++) {
-      if (mask[i] & groupbit) {
-        temperature->remove_bias(i,v[i]);
-        v[i][0] *= factor_eta;
-        v[i][1] *= factor_eta;
-        v[i][2] *= factor_eta;
-        temperature->restore_bias(i,v[i]);
-      }
+      if (!(mask[i] & groupbit) || spin_mass[i] <= 0.0) continue;
+      spin_velocity[i][0] *= factor_eta;
+      spin_velocity[i][1] *= factor_eta;
+      spin_velocity[i][2] *= factor_eta;
     }
   }
 }
@@ -2541,7 +2798,12 @@ void FixNH::nh_omega_dot()
   mtk_term1 = 0.0;
   if (mtk_flag) {
     if (pstyle == ISO) {
-      mtk_term1 = tdof * boltz * t_current;
+      // Accelerator styles maintain the ordinary thermostat state directly.
+      // The separate lattice state is valid only for coupled spin dynamics.
+      if (spin_flag)
+        mtk_term1 = spin_lattice_dof * boltz * spin_lattice_temperature;
+      else
+        mtk_term1 = tdof * boltz * t_current;
       mtk_term1 /= pdim * atom->natoms;
     } else {
       double *mvv_current = temperature->vector;

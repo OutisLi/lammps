@@ -42,6 +42,12 @@ set_tests_properties(SimpleCommands PROPERTIES
 add_kokkos_test(NAME SimpleCommands COMMAND test_simple_commands
                 ENVIRONMENT "LAMMPS_PLUGIN_DIR=${LAMMPS_PLUGIN_BIN_DIR}")
 
+if(PKG_KOKKOS)
+  add_executable(test_nonspin_nh test_nonspin_nh.cpp)
+  target_link_libraries(test_nonspin_nh PRIVATE lammps GTest::GTest)
+  add_test(NAME NonSpinNoseHoover COMMAND test_nonspin_nh)
+endif()
+
 add_executable(test_lattice_region test_lattice_region.cpp)
 target_link_libraries(test_lattice_region PRIVATE lammps GTest::GMock)
 add_test(NAME LatticeRegion COMMAND test_lattice_region)

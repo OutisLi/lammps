@@ -56,6 +56,11 @@ class FixNH : public Fix {
 
   int tstat_flag;    // 1 if control T
   int pstat_flag;    // 1 if control P
+  int lattice_flag, spin_flag;
+  int spin_seed;
+  double spin_mass_scale;
+  // Lattice kinetic state retained only for coupled Newtonian spin dynamics.
+  double spin_lattice_temperature, spin_lattice_dof;
 
   int pstyle, pcouple, allremap;
   int p_flag[6];    // 1 if control P on this dim, 0 if not
@@ -140,6 +145,11 @@ class FixNH : public Fix {
   virtual void nh_v_temp();
   virtual void compute_temp_target();
   virtual int size_restart_global();
+
+  void initialize_spin_state();
+  void add_spin_temperature();
+  void nve_spin_v();
+  void nve_spin_x();
 
   void compute_sigma();
   void compute_deviatoric();
