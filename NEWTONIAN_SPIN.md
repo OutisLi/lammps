@@ -677,7 +677,9 @@ magnetic forces, types, per-atom masses, and group masks around it.
 KOKKOS comm styles pack forward communication on the host while a
 time-integration fix runs on the host and no `comm` or `comm/forward` setting
 was given; the coordinates are then not copied to the device for packing and
-back for the next step.
+back for the next step. For the same reason `NeighborKokkos::check_distance()`
+checks the displacements since the last neighbor-list build on the host while
+the host holds the newer coordinates.
 
 #### 19.4 Langevin thermostat
 

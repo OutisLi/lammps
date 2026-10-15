@@ -191,7 +191,12 @@ void NeighborKokkos::grow_ex_mol_intra_kokkos()
 
 int NeighborKokkos::check_distance()
 {
-  if (device_flag)
+  // check the coordinates where they are current: after a time integration
+  // fix that runs on the host, a check on the device would first copy them
+  // there, and the force computation copies them again once the forward
+  // communication has updated the ghost atoms on the host
+
+  if (device_flag && !atomKK->k_x.need_sync_device())
     return check_distance_kokkos<LMPDeviceType>();
   else
     return check_distance_kokkos<LMPHostType>();
