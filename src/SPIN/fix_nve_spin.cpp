@@ -110,28 +110,26 @@ void FixNVESpin::init()
 
 void FixNVESpin::initial_integrate(int /*vflag*/)
 {
-  if (lattice_flag) {
-    update_lattice_velocity();
-    update_positions();
-  }
-  if (spin_flag) {
-    update_spin_velocity();
-    update_spins();
-  }
+  if (lattice_flag) update_lattice(true);
+  if (spin_flag) update_spins(true);
 }
 
 /* ---------------------------------------------------------------------- */
 
 void FixNVESpin::final_integrate()
 {
-  if (lattice_flag) update_lattice_velocity();
-  if (spin_flag) update_spin_velocity();
+  if (lattice_flag) update_lattice(false);
+  if (spin_flag) update_spins(false);
 }
 
-/* ---------------------------------------------------------------------- */
+/* ----------------------------------------------------------------------
+   half-step kick of the atomic velocities, followed by the full-step drift
+   of the positions when drift is set; one pass over the atoms applies both
+------------------------------------------------------------------------- */
 
-void FixNVESpin::update_lattice_velocity()
+void FixNVESpin::update_lattice(bool drift)
 {
+  double **x = atom->x;
   double **v = atom->v;
   double **f = atom->f;
   double *rmass = atom->rmass;
@@ -148,15 +146,25 @@ void FixNVESpin::update_lattice_velocity()
     v[i][0] += scale * f[i][0];
     v[i][1] += scale * f[i][1];
     v[i][2] += scale * f[i][2];
+    if (drift) {
+      x[i][0] += dtv * v[i][0];
+      x[i][1] += dtv * v[i][1];
+      x[i][2] += dtv * v[i][2];
+    }
   }
 }
 
-/* ---------------------------------------------------------------------- */
+/* ----------------------------------------------------------------------
+   half-step kick of the Cartesian spin velocities, followed by the full-step
+   drift of the spin vectors when drift is set; the drifted vector is split
+   back into unit direction and unconstrained magnitude in the same pass
+------------------------------------------------------------------------- */
 
-void FixNVESpin::update_spin_velocity()
+void FixNVESpin::update_spins(bool drift)
 {
-  double **spin_velocity = atom->spin_velocity;
+  double **sp = atom->sp;
   double **fm = atom->fm;
+  double **spin_velocity = atom->spin_velocity;
   double *spin_mass = atom->spin_mass;
   int *mask = atom->mask;
   int nlocal = atom->nlocal;
@@ -168,40 +176,7 @@ void FixNVESpin::update_spin_velocity()
     spin_velocity[i][0] += scale * fm[i][0];
     spin_velocity[i][1] += scale * fm[i][1];
     spin_velocity[i][2] += scale * fm[i][2];
-  }
-}
-
-/* ---------------------------------------------------------------------- */
-
-void FixNVESpin::update_positions()
-{
-  double **x = atom->x;
-  double **v = atom->v;
-  int *mask = atom->mask;
-  int nlocal = atom->nlocal;
-  if (igroup == atom->firstgroup) nlocal = atom->nfirst;
-
-  for (int i = 0; i < nlocal; i++) {
-    if (!(mask[i] & groupbit)) continue;
-    x[i][0] += dtv * v[i][0];
-    x[i][1] += dtv * v[i][1];
-    x[i][2] += dtv * v[i][2];
-  }
-}
-
-/* ---------------------------------------------------------------------- */
-
-void FixNVESpin::update_spins()
-{
-  double **sp = atom->sp;
-  double **spin_velocity = atom->spin_velocity;
-  double *spin_mass = atom->spin_mass;
-  int *mask = atom->mask;
-  int nlocal = atom->nlocal;
-  if (igroup == atom->firstgroup) nlocal = atom->nfirst;
-
-  for (int i = 0; i < nlocal; i++) {
-    if (!(mask[i] & groupbit) || spin_mass[i] <= 0.0) continue;
+    if (!drift) continue;
 
     double spin[3] = {
       sp[i][0] * sp[i][3] + dtv * spin_velocity[i][0],

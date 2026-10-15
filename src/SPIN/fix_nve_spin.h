@@ -42,10 +42,8 @@ class FixNVESpin : public Fix {
  private:
   double dtv, dtf;
 
-  void update_lattice_velocity();
-  void update_spin_velocity();
-  void update_positions();
-  void update_spins();
+  void update_lattice(bool);
+  void update_spins(bool);
 };
 
 }    // namespace LAMMPS_NS
