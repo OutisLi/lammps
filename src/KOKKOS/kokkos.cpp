@@ -32,6 +32,7 @@
 #include "neighbor_kokkos.h"
 #include "timer.h"
 #include "tune_kokkos.h"
+#include "update.h"
 
 #include <cstring>
 #include <cctype>
@@ -1006,11 +1007,12 @@ void KokkosLMP::respa_check()
 
 /* ----------------------------------------------------------------------
    choose whether forward communication packs on the host or the device,
-   unless set with the comm or comm/forward keyword.  A time integration
-   fix that runs on the host updates the coordinates there every step, so
-   packing them on the device would copy them to the device and back to
-   the host for the next step.  Called from the init() of the KOKKOS comm
-   styles.
+   unless set with the comm or comm/forward keyword.  During a run, a time
+   integration fix that runs on the host updates the coordinates there
+   every step, so packing them on the device would copy them to the device
+   and back to the host for the next step.  A minimization does not call
+   the integrators and keeps device packing.  Called from the init() of
+   the KOKKOS comm styles.
 ------------------------------------------------------------------------- */
 
 void KokkosLMP::select_forward_comm()
@@ -1018,6 +1020,7 @@ void KokkosLMP::select_forward_comm()
   if (forward_comm_set || forward_comm_legacy) return;
 
   forward_comm_on_host = 0;
+  if (update->whichflag != 1) return;
   for (auto *fix : modify->get_fix_list())
     if (fix->time_integrate && (fix->execution_space != Device)) forward_comm_on_host = 1;
 }

@@ -540,10 +540,13 @@ pack/unpack communicated data. When running small systems on a GPU,
 performing the exchange pack/unpack on the host CPU can give speedup
 since it reduces the number of CUDA kernel launches.
 
+.. versionchanged:: TBD
+
 When neither the *comm* nor the *comm/forward* keyword is used, forward
 communication uses the *host* value instead of the *device* default
-while a fix that performs time integration runs on the host, e.g. a fix
-without a KOKKOS version such as :doc:`fix nve/spin <fix_nve_spin>`.
+during a :doc:`run <run>` in which a fix that performs time integration
+runs on the host, e.g. a fix without a KOKKOS version such as
+:doc:`fix nve/spin <fix_nve_spin>`.
 Such a fix updates the coordinates on the host every timestep, so packing
 them on the device would copy them to the device and back. Using the
 *comm/forward device* setting explicitly keeps the packing on the device.
@@ -885,10 +888,10 @@ For the KOKKOS package when using GPUs, the option defaults are:
 
 For GPUs, option neigh/thread = on when there are 16k atoms or less on
 an MPI rank, otherwise it is "off". Without the comm and comm/forward
-options, comm/forward = host while a fix that performs time integration
-runs on the host, see above. When LAMMPS can safely detect that
-GPU-aware MPI is not available, the default value of gpu/aware becomes
-"off".
+options, comm/forward = host during a run in which a fix that performs
+time integration runs on the host, see above. When LAMMPS can safely
+detect that GPU-aware MPI is not available, the default value of
+gpu/aware becomes "off".
 
 For the KOKKOS package when using CPUs, the option defaults are:
 
