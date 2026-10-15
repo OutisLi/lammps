@@ -26,9 +26,11 @@
 
 #include "atom_kokkos.h"
 #include "atom_masks.h"
+#include "comm.h"
 #include "domain.h"
 #include "error.h"
 #include "fix.h"
+#include "kokkos.h"
 #include "memory_kokkos.h"
 #include "modify.h"
 
@@ -57,7 +59,21 @@ void AtomVecSpinKokkos::init()
   // fixes, so they are kept as plain host arrays rather than dual views: a
   // device residency they never use would cost a synchronization per step.
   // Device sorting applies its permutation to them on the host, see
-  // sort_kokkos().
+  // sort_kokkos(). The KOKKOS exchange packs dual views only and would drop
+  // them for atoms that migrate to another rank, so with more than one rank
+  // this style selects the legacy exchange, which packs every field that
+  // AtomVecSpin registers. The setting is made on the package because
+  // CommKokkos::init() copies it from there after this call.
+
+  if ((comm->nprocs > 1) && !lmp->kokkos->exchange_comm_legacy) {
+    lmp->kokkos->exchange_comm_legacy = 1;
+    lmp->kokkos->exchange_comm_changed = 1;
+    if (comm->me == 0)
+      error->warning(FLERR,
+                     "Newtonian spin state is not (yet) compatible with Kokkos "
+                     "exchange communication, switching to legacy exchange/border "
+                     "communication");
+  }
 
   set_atom_masks();
 }
