@@ -638,9 +638,7 @@ double FixNHKokkos<DeviceType>::compute_vector(int n)
 template<class DeviceType>
 void *FixNHKokkos<DeviceType>::extract(const char *str, int &dim)
 {
-  // of the extracted quantities only eta is advanced by the device chain
-
-  if (strcmp(str,"eta") == 0) sync_chain_host();
+  sync_chain_host();
   return FixNH::extract(str,dim);
 }
 
