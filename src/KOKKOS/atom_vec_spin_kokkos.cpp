@@ -59,13 +59,16 @@ void AtomVecSpinKokkos::init()
   // fixes, so they are kept as plain host arrays rather than dual views: a
   // device residency they never use would cost a synchronization per step.
   // Device sorting applies its permutation to them on the host, see
-  // sort_kokkos(). The KOKKOS exchange packs dual views only and would drop
-  // them for atoms that migrate to another rank, so with more than one rank
-  // this style selects the legacy exchange, which packs every field that
-  // AtomVecSpin registers. The setting is made on the package because
-  // CommKokkos::init() copies it from there after this call.
+  // sort_kokkos(). The KOKKOS exchange packs dual views only and fills the
+  // slot of a departing atom by copying dual views only, so atoms that
+  // migrate to another rank or are lost through a non-periodic boundary
+  // would separate the two arrays from their atoms. With more than one rank
+  // or a non-periodic boundary this style therefore selects the legacy
+  // exchange, which handles every field that AtomVecSpin registers. The
+  // setting is made on the package because CommKokkos::init() copies it
+  // from there after this call.
 
-  if ((comm->nprocs > 1) && !lmp->kokkos->exchange_comm_legacy) {
+  if ((comm->nprocs > 1 || domain->nonperiodic) && !lmp->kokkos->exchange_comm_legacy) {
     lmp->kokkos->exchange_comm_legacy = 1;
     lmp->kokkos->exchange_comm_changed = 1;
     if (comm->me == 0)

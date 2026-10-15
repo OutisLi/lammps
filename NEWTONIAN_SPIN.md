@@ -523,7 +523,8 @@ as many devices as ranks per node when one rank per GPU is desired.
 With more than one rank, `atom_style spin/kk` moves migrating atoms with the
 legacy exchange and prints a warning when another exchange mode was selected,
 because the KOKKOS exchange does not carry the Newtonian spin velocity and
-inertia.
+inertia. A non-periodic boundary selects the legacy exchange on one rank as
+well.
 
 The PT2 file and all input files must be visible to every rank. The compact
 canonical graph path exchanges ghost contributions through the Kokkos pair
@@ -659,9 +660,11 @@ Under Kokkos, `src/KOKKOS/atom_vec_spin_kokkos.cpp` keeps both arrays on the
 host, where the Newtonian fixes read and write them. Device sorting permutes
 the dual views on the device and applies the same permutation, copied to the
 host, to these two arrays, so sorting does not move the other per-atom arrays
-through the host. The KOKKOS exchange packs dual views only, so with more than
-one rank the style selects the legacy exchange, which packs both arrays with
-the other registered fields of migrating atoms.
+through the host. The KOKKOS exchange packs dual views only and fills the slot
+of a departing atom by copying dual views only, so with more than one rank or
+a non-periodic boundary, where atoms migrate or are lost, the style selects
+the legacy exchange, which handles both arrays with the other registered
+fields.
 
 #### 19.3 Newtonian integrator
 
