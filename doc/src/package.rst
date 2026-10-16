@@ -546,7 +546,7 @@ When neither the *comm* nor the *comm/forward* keyword is used, forward
 communication uses the *host* value instead of the *device* default
 during a :doc:`run <run>` in which a fix that performs time integration
 runs on the host, e.g. a fix without a KOKKOS version such as
-:doc:`fix nve/spin <fix_nve_spin>`.
+:doc:`fix nve/body <fix_nve_body>`.
 Such a fix updates the coordinates on the host every timestep, so packing
 them on the device would copy them to the device and back. Using the
 *comm/forward device* setting explicitly keeps the packing on the device.

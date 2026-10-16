@@ -56,14 +56,19 @@ void AtomVecSpinKokkos::init()
   // The KOKKOS exchange packs, unpacks and moves the per-atom fields its
   // functors know, which do not include the Newtonian spin velocity and
   // inertia, and it fills the slot of a departing atom the same way, so atoms
-  // that migrate to another rank or are lost through a non-periodic boundary
-  // would separate those two arrays from their atoms. With more than one rank
-  // or a non-periodic boundary this style therefore selects the legacy
-  // exchange, which handles every field that AtomVecSpin registers. The
-  // setting is made on the package because CommKokkos::init() copies it
-  // from there after this call.
+  // that migrate to another rank or are lost through a fixed boundary would
+  // separate those two arrays from their atoms; shrink-wrapped boundaries
+  // follow the atoms and lose none. With more than one rank or a fixed
+  // boundary this style therefore selects the legacy exchange, which handles
+  // every field that AtomVecSpin registers. The setting is made on the
+  // package because CommKokkos::init() copies it from there after this call.
 
-  if ((comm->nprocs > 1 || domain->nonperiodic) && !lmp->kokkos->exchange_comm_legacy) {
+  bool fixed_boundary = false;
+  for (int dim = 0; dim < 3; dim++)
+    for (int side = 0; side < 2; side++)
+      if (domain->boundary[dim][side] == 1) fixed_boundary = true;
+
+  if ((comm->nprocs > 1 || fixed_boundary) && !lmp->kokkos->exchange_comm_legacy) {
     lmp->kokkos->exchange_comm_legacy = 1;
     lmp->kokkos->exchange_comm_changed = 1;
     if (comm->me == 0)

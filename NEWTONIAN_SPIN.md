@@ -175,9 +175,12 @@ pair_style dpa4spin/kk model.pt2
 fix integrate all nve/spin/kk lattice_flag yes spin_flag yes
 ```
 
-`fix nve/spin/kk` integrates the lattice and the spins on the device, so a
-Newtonian NVE step moves no per-atom data between host and device; a global
-`-sf kk` selects it for `fix nve/spin`. Keep the Newtonian Nose-Hoover styles
+`fix nve/spin/kk` integrates the lattice and the spins on the device, so on
+one rank with periodic boundaries a Newtonian NVE step moves no per-atom data
+between host and device; a global `-sf kk` selects it for `fix nve/spin`.
+With more than one rank or a fixed boundary, the legacy exchange of
+`spin/kk` (section 19.2) moves the per-atom arrays through the host at each
+neighbor-list rebuild. Keep the Newtonian Nose-Hoover styles
 unsuffixed: `-sf kk` would select `nvt/kk` or `npt/kk`, which do not
 implement this fork's spin state. The `spin/kk` atom style keeps the
 Newtonian spin velocity and inertia in dual views like the other per-atom
@@ -352,8 +355,8 @@ The magnitude is not constrained.
 
 Under the KOKKOS package `fix nve/spin/kk` performs the same update on the
 device. Each operation is rounded on its own and evaluated in the order of
-the host fix, so in double precision its trajectories agree with
-`fix nve/spin` bit for bit wherever the host compiler does not contract
+the host fix, so in double precision on CUDA devices its trajectories agree
+with `fix nve/spin` bit for bit wherever the host compiler does not contract
 multiply-adds. A spin vector whose magnitude becomes non-finite stops the run
 at the next thermo output or at the end of the run, rather than in the step
 in which it occurs.
@@ -536,8 +539,8 @@ as many devices as ranks per node when one rank per GPU is desired.
 With more than one rank, `atom_style spin/kk` moves migrating atoms with the
 legacy exchange and prints a warning when another exchange mode was selected,
 because the KOKKOS exchange does not carry the Newtonian spin velocity and
-inertia. A non-periodic boundary selects the legacy exchange on one rank as
-well.
+inertia. A fixed (`f`) boundary, through which atoms can be lost, selects the
+legacy exchange on one rank as well.
 
 The PT2 file and all input files must be visible to every rank. The compact
 canonical graph path exchanges ghost contributions through the Kokkos pair
@@ -676,9 +679,9 @@ views (`k_spin_velocity` and `k_spin_mass`, with the masks `SPV_MASK` and
 copies them to the device in `init()`, since commands between runs such as
 `velocity` and `read_restart` write them on the host. The KOKKOS exchange
 functors do not pack them and fill the slot of a departing atom without
-them, so with more than one rank or a non-periodic boundary, where atoms
-migrate or are lost, the style selects the legacy exchange, which handles
-both arrays with the other registered fields.
+them, so with more than one rank or a fixed boundary, where atoms migrate or
+are lost, the style selects the legacy exchange, which handles both arrays
+with the other registered fields.
 
 #### 19.3 Newtonian integrator
 
@@ -1151,9 +1154,9 @@ Before distributing a port:
 - Upstream `spin/*` pair and precession force conventions cannot be mixed.
 - RESPA is unsupported.
 - Suffixed Newtonian spin Nose-Hoover styles are unsupported.
-- `fix langevin/spin` and the Newtonian Nose-Hoover extension run on the
-  host, so with either of them a Kokkos run moves per-atom data between host
-  and device every step.
+- `fix langevin/spin`, `fix spring/spin/mod`, and the Newtonian Nose-Hoover
+  extension run on the host, so with any of them a Kokkos run moves per-atom
+  data between host and device every step.
 - The NVT/NPT extension uses one Nose-Hoover chain for lattice and spin
   kinetic modes; it does not provide independent parallel and transverse
   chains.

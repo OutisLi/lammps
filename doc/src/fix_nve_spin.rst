@@ -11,49 +11,66 @@ Syntax
 
 .. code-block:: LAMMPS
 
-   fix ID group-ID nve/spin keyword values
+   fix ID group-ID nve/spin keyword value ...
 
 * ID, group-ID are documented in :doc:`fix <fix>` command
 * nve/spin = style name of this fix command
-* keyword = *lattice*
+* zero or more keyword/value pairs may be appended
+* keyword = *lattice_flag* or *spin_flag*
 
   .. parsed-literal::
 
-       *lattice* value = *moving* or *frozen*
-         moving = integrate both spin and atomic degrees of freedom
-         frozen = integrate spins on a fixed lattice
+       *lattice_flag* value = *yes* or *no*
+         yes = integrate the positions and atomic velocities
+         no = keep the lattice fixed
+       *spin_flag* value = *yes* or *no*
+         yes = integrate the spin vectors and spin velocities
+         no = keep the spins fixed
 
 Examples
 """"""""
 
 .. code-block:: LAMMPS
 
-   fix 3 all nve/spin lattice moving
-   fix 1 all nve/spin lattice frozen
+   fix 1 all nve/spin lattice_flag yes spin_flag yes
+   fix 1 all nve/spin lattice_flag no
 
 Description
 """""""""""
 
-Perform a symplectic integration for the spin or spin-lattice system.
+Perform constant NVE integration of Newtonian spin-lattice dynamics, in
+which the spin vector :math:`\vec{S}_i = |\vec{S}_i| \, \vec{s}_i` of each
+atom is a Cartesian coordinate with its own velocity
+:math:`\vec{V}_{S,i}` and inertia :math:`I_i`, and its magnitude is not
+constrained. Both sets of coordinates are advanced with velocity-Verlet:
 
-The *lattice* keyword defines if the spins are integrated on a lattice
-of fixed atoms (lattice = frozen), or if atoms are moving
-(lattice = moving).
-The first case corresponds to a spin dynamics calculation, and
-the second to a spin-lattice calculation.
-By default a spin-lattice integration is performed (lattice = moving).
+.. math::
 
-The *nve/spin* fix applies a Suzuki-Trotter decomposition to
-the equations of motion of the spin lattice system, following the scheme:
+   \vec{V}_{S,i}(t + \Delta t/2) & = \vec{V}_{S,i}(t)
+     + \frac{\Delta t}{2 I_i} \vec{F}_{S,i}(t) \\
+   \vec{S}_i(t + \Delta t) & = \vec{S}_i(t)
+     + \Delta t \, \vec{V}_{S,i}(t + \Delta t/2) \\
+   \vec{V}_{S,i}(t + \Delta t) & = \vec{V}_{S,i}(t + \Delta t/2)
+     + \frac{\Delta t}{2 I_i} \vec{F}_{S,i}(t + \Delta t)
 
-.. image:: JPG/fix_integration_spin_stdecomposition.jpg
-   :align: center
+and likewise for the positions and atomic velocities. After the drift the
+spin vector is split back into the unit direction :math:`\vec{s}_i` and the
+magnitude :math:`|\vec{S}_i|`, which atom style spin stores as *sp*. The
+magnetic force :math:`\vec{F}_{S,i} = -\partial E / \partial \vec{S}_i`
+is the Cartesian derivative of the energy, which the pair style must
+declare that it computes.
 
-according to the implementation reported in :ref:`(Omelyan) <Omelyan1>`.
+The spin velocities and inertia are assigned with the *spin yes* and
+*spmass* options of the *velocity create* command; atoms with zero
+inertia keep their spins fixed. The *lattice_flag* and *spin_flag*
+keywords select which of the two sets of coordinates is integrated.
 
-A sectoring method enables this scheme for parallel calculations.
-The implementation of this sectoring algorithm is reported
-in :ref:`(Tranchida) <Tranchida1>`.
+The *nve/spin/kk* variant performs the same update on the device. In
+double precision on CUDA devices its trajectories agree with the host
+fix bit for bit, as long as the host compiler does not contract
+multiply-adds into fused operations. It reports a non-finite spin
+magnitude at the next thermodynamic output or at the end of the run
+rather than in the step in which it occurs.
 
 ----------
 
@@ -61,41 +78,39 @@ in :ref:`(Tranchida) <Tranchida1>`.
 
 ----------
 
+Restart, fix_modify, output, run start/stop, minimize info
+"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+
+No information about this fix is written to :doc:`binary restart files
+<restart>`; the spin velocities and inertia are stored with the atoms.
+None of the :doc:`fix_modify <fix_modify>` options are relevant to this
+fix. No global or per-atom quantities are stored by this fix for access
+by various :doc:`output commands <Howto_output>`. No parameter of this
+fix can be used with the *start/stop* keywords of the :doc:`run <run>`
+command. This fix is not invoked during :doc:`energy minimization
+<minimize>`.
+
 Restrictions
 """"""""""""
 
 This fix style can only be used if LAMMPS was built with the SPIN
-package.  See the :doc:`Build package <Build_package>` page for more
+package. See the :doc:`Build package <Build_package>` page for more
 info.
 
-To use the spin algorithm, it is necessary to define a map with
-the atom_modify command. Typically, by adding the command:
-
-.. code-block:: LAMMPS
-
-   atom_modify map array
-
-before you create the simulation box. Note that the keyword "hash"
-instead of "array" is also valid.
+It requires atom style spin, metal units, a single pair style (not a
+hybrid style) that declares the Cartesian magnetic force, such as
+dpa4spin/kk, and spin inertia assigned to at least one atom of the group
+when *spin_flag* is *yes*. It cannot be combined with the fixes
+precession/spin or setforce/spin, and it does not support
+:doc:`run_style respa <run_style>`.
 
 Related commands
 """"""""""""""""
 
-:doc:`atom_style spin <atom_style>`, :doc:`fix nve <fix_nve>`
+:doc:`atom_style spin <atom_style>`, :doc:`fix nve <fix_nve>`,
+:doc:`velocity <velocity>`
 
 Default
 """""""
 
-The option default is lattice = moving.
-
-----------
-
-.. _Omelyan1:
-
-**(Omelyan)** Omelyan, Mryglod, and Folk. Phys. Rev. Lett.
-86(5), 898. (2001).
-
-.. _Tranchida1:
-
-**(Tranchida)** Tranchida, Plimpton, Thibaudeau and Thompson,
-Journal of Computational Physics, 372, 406-425, (2018).
+The option defaults are lattice_flag = yes and spin_flag = yes.
