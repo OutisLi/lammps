@@ -452,10 +452,16 @@ void AtomKokkos::sort_device()
   max_bins[1] = nbiny;
   max_bins[2] = nbinz;
 
+  // The atoms of one bin enter it in the order of atomic increments, which
+  // varies from run to run, so they are sorted within their bin by position.
+  // The local order is then a function of the positions alone, and every
+  // reduction over the local atoms, such as the temperature a thermostat
+  // scales the velocities by, sums in the same order from run to run.
+
   using KeyViewType = DAT::t_kkfloat_1d_3_lr;
   using BinOp = BinOp3DLAMMPS<KeyViewType>;
   BinOp binner(max_bins, bboxlo, bboxhi);
-  Kokkos::BinSort<KeyViewType, BinOp> Sorter(d_x, 0, nlocal, binner, false);
+  Kokkos::BinSort<KeyViewType, BinOp> Sorter(d_x, 0, nlocal, binner, true);
   Sorter.create_permute_vector(LMPDeviceType());
 
   avecKK->sort_kokkos(Sorter);
