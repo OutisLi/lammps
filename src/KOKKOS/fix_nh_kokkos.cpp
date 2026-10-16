@@ -28,6 +28,7 @@
 #include "irregular.h"
 #include "kokkos.h"
 #include "kspace.h"
+#include "math_rounded_kokkos.h"
 #include "neighbor.h"
 #include "update.h"
 
@@ -38,6 +39,7 @@
 
 using namespace LAMMPS_NS;
 using namespace FixConst;
+using namespace MathRoundedKokkos;
 
 static constexpr double DELTAFLIP = 0.1;
 static constexpr double TILTMAX = 1.5;
@@ -53,11 +55,10 @@ enum{ISO,ANISO,TRICLINIC};
    The device chain update reproduces the host update of
    FixNH::nhc_temp_integrate() bit for bit where the host compiler keeps its
    multiplications and additions apart, as x86-64 builds without FMA code
-   generation do. Device code contracts a*b+c into a fused multiply-add
-   unless told otherwise, so every operation is rounded on its own with the
-   explicitly rounded CUDA intrinsics. A host compiler that contracts them,
-   as GCC does by default where the target has FMA instructions, makes the
-   two results differ in the last bits at equal accuracy.
+   generation do: every operation is rounded on its own with the functions
+   of math_rounded_kokkos.h. A host compiler that contracts them, as GCC
+   does by default where the target has FMA instructions, makes the two
+   results differ in the last bits at equal accuracy.
 
    exp() follows the double-precision exp of the GNU C library (since
    version 2.28; the algorithm of Arm's optimized-routines): x = k ln2/128 + r,
@@ -150,46 +151,6 @@ __constant__ uint64_t EXP_TABLE[256] = {
   0x3c8a64a931d185eeULL, 0x3fefd0765b6e4540ULL, 0xbc8e37bae43be3edULL, 0x3fefdbfdad9cbe14ULL,
   0x3c77893b4d91cd9dULL, 0x3fefe7c1819e90d8ULL, 0x3c5305c14160cc89ULL, 0x3feff3c22b8f71f1ULL};
 #endif
-
-// NOLINTNEXTLINE
-KOKKOS_INLINE_FUNCTION double nh_add(double a, double b)
-{
-#if defined(__CUDA_ARCH__)
-  return __dadd_rn(a, b);
-#else
-  return a + b;
-#endif
-}
-
-// NOLINTNEXTLINE
-KOKKOS_INLINE_FUNCTION double nh_sub(double a, double b)
-{
-#if defined(__CUDA_ARCH__)
-  return __dsub_rn(a, b);
-#else
-  return a - b;
-#endif
-}
-
-// NOLINTNEXTLINE
-KOKKOS_INLINE_FUNCTION double nh_mul(double a, double b)
-{
-#if defined(__CUDA_ARCH__)
-  return __dmul_rn(a, b);
-#else
-  return a * b;
-#endif
-}
-
-// NOLINTNEXTLINE
-KOKKOS_INLINE_FUNCTION double nh_div(double a, double b)
-{
-#if defined(__CUDA_ARCH__)
-  return __ddiv_rn(a, b);
-#else
-  return a / b;
-#endif
-}
 
 // NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION double nh_exp(double x)
@@ -708,57 +669,57 @@ void FixNHKokkos<DeviceType>::operator()(TagFixNH_nhc_temp, const int &) const {
   }
   eta_dot_l[mtchain] = 0.0;
 
-  double t = chain_refresh ? nh_mul(d_kinetic().t0,chain_tfactor) : d_t_current();
-  double kecurrent = nh_mul(chain_kecoef,t);
+  double t = chain_refresh ? mul_rn(d_kinetic().t0,chain_tfactor) : d_t_current();
+  double kecurrent = mul_rn(chain_kecoef,t);
 
   if (chain_mass[0] > 0.0)
-    eta_dotdot_l[0] = nh_div(nh_sub(kecurrent,ke_target),chain_mass[0]);
+    eta_dotdot_l[0] = div_rn(sub_rn(kecurrent,ke_target),chain_mass[0]);
   else eta_dotdot_l[0] = 0.0;
 
   double expfac;
   for (int iloop = 0; iloop < nc_tchain; iloop++) {
 
     for (int ich = mtchain-1; ich > 0; ich--) {
-      expfac = nh_exp(nh_mul(chain_dt8_arg,eta_dot_l[ich+1]));
-      eta_dot_l[ich] = nh_mul(eta_dot_l[ich],expfac);
-      eta_dot_l[ich] = nh_add(eta_dot_l[ich],nh_mul(nh_mul(eta_dotdot_l[ich],chain_ncfac),dt4));
-      eta_dot_l[ich] = nh_mul(eta_dot_l[ich],tdrag_factor);
-      eta_dot_l[ich] = nh_mul(eta_dot_l[ich],expfac);
+      expfac = nh_exp(mul_rn(chain_dt8_arg,eta_dot_l[ich+1]));
+      eta_dot_l[ich] = mul_rn(eta_dot_l[ich],expfac);
+      eta_dot_l[ich] = add_rn(eta_dot_l[ich],mul_rn(mul_rn(eta_dotdot_l[ich],chain_ncfac),dt4));
+      eta_dot_l[ich] = mul_rn(eta_dot_l[ich],tdrag_factor);
+      eta_dot_l[ich] = mul_rn(eta_dot_l[ich],expfac);
     }
 
-    expfac = nh_exp(nh_mul(chain_dt8_arg,eta_dot_l[1]));
-    eta_dot_l[0] = nh_mul(eta_dot_l[0],expfac);
-    eta_dot_l[0] = nh_add(eta_dot_l[0],nh_mul(nh_mul(eta_dotdot_l[0],chain_ncfac),dt4));
-    eta_dot_l[0] = nh_mul(eta_dot_l[0],tdrag_factor);
-    eta_dot_l[0] = nh_mul(eta_dot_l[0],expfac);
+    expfac = nh_exp(mul_rn(chain_dt8_arg,eta_dot_l[1]));
+    eta_dot_l[0] = mul_rn(eta_dot_l[0],expfac);
+    eta_dot_l[0] = add_rn(eta_dot_l[0],mul_rn(mul_rn(eta_dotdot_l[0],chain_ncfac),dt4));
+    eta_dot_l[0] = mul_rn(eta_dot_l[0],tdrag_factor);
+    eta_dot_l[0] = mul_rn(eta_dot_l[0],expfac);
 
-    const double factor_eta_loop = nh_exp(nh_mul(chain_dthalf_arg,eta_dot_l[0]));
+    const double factor_eta_loop = nh_exp(mul_rn(chain_dthalf_arg,eta_dot_l[0]));
     d_factor_eta(iloop) = factor_eta_loop;
 
     // rescale temperature due to velocity scaling
 
-    t = nh_mul(t,nh_mul(factor_eta_loop,factor_eta_loop));
-    kecurrent = nh_mul(chain_kecoef,t);
+    t = mul_rn(t,mul_rn(factor_eta_loop,factor_eta_loop));
+    kecurrent = mul_rn(chain_kecoef,t);
 
     if (chain_mass[0] > 0.0)
-      eta_dotdot_l[0] = nh_div(nh_sub(kecurrent,ke_target),chain_mass[0]);
+      eta_dotdot_l[0] = div_rn(sub_rn(kecurrent,ke_target),chain_mass[0]);
     else eta_dotdot_l[0] = 0.0;
 
     for (int ich = 0; ich < mtchain; ich++)
-      eta_l[ich] = nh_add(eta_l[ich],nh_mul(chain_eta_step,eta_dot_l[ich]));
+      eta_l[ich] = add_rn(eta_l[ich],mul_rn(chain_eta_step,eta_dot_l[ich]));
 
-    eta_dot_l[0] = nh_mul(eta_dot_l[0],expfac);
-    eta_dot_l[0] = nh_add(eta_dot_l[0],nh_mul(nh_mul(eta_dotdot_l[0],chain_ncfac),dt4));
-    eta_dot_l[0] = nh_mul(eta_dot_l[0],expfac);
+    eta_dot_l[0] = mul_rn(eta_dot_l[0],expfac);
+    eta_dot_l[0] = add_rn(eta_dot_l[0],mul_rn(mul_rn(eta_dotdot_l[0],chain_ncfac),dt4));
+    eta_dot_l[0] = mul_rn(eta_dot_l[0],expfac);
 
     for (int ich = 1; ich < mtchain; ich++) {
-      expfac = nh_exp(nh_mul(chain_dt8_arg,eta_dot_l[ich+1]));
-      eta_dot_l[ich] = nh_mul(eta_dot_l[ich],expfac);
+      expfac = nh_exp(mul_rn(chain_dt8_arg,eta_dot_l[ich+1]));
+      eta_dot_l[ich] = mul_rn(eta_dot_l[ich],expfac);
       eta_dotdot_l[ich] =
-        nh_div(nh_sub(nh_mul(nh_mul(chain_mass[ich-1],eta_dot_l[ich-1]),eta_dot_l[ich-1]),
+        div_rn(sub_rn(mul_rn(mul_rn(chain_mass[ich-1],eta_dot_l[ich-1]),eta_dot_l[ich-1]),
                       chain_kt),chain_mass[ich]);
-      eta_dot_l[ich] = nh_add(eta_dot_l[ich],nh_mul(nh_mul(eta_dotdot_l[ich],chain_ncfac),dt4));
-      eta_dot_l[ich] = nh_mul(eta_dot_l[ich],expfac);
+      eta_dot_l[ich] = add_rn(eta_dot_l[ich],mul_rn(mul_rn(eta_dotdot_l[ich],chain_ncfac),dt4));
+      eta_dot_l[ich] = mul_rn(eta_dot_l[ich],expfac);
     }
   }
 
