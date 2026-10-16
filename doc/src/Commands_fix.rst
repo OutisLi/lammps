@@ -161,7 +161,7 @@ parenthesis: g = GPU, i = INTEL, k = KOKKOS, o = OPENMP, t = OPT.
    * :doc:`nve/noforce (k) <fix_nve_noforce>`
    * :doc:`nve/sphere (ko) <fix_nve_sphere>`
    * :doc:`nve/bpm/sphere <fix_nve_bpm_sphere>`
-   * :doc:`nve/spin <fix_nve_spin>`
+   * :doc:`nve/spin (k) <fix_nve_spin>`
    * :doc:`nve/tri <fix_nve_tri>`
    * :doc:`nvk (k) <fix_nvk>`
    * :doc:`nvt (giko) <fix_nh>`

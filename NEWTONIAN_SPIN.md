@@ -151,7 +151,8 @@ ldd "${DEEPMD_ROOT}/lib/libdeepmd_op_pt.so"
 ```
 
 The style listing must contain `spin/kk`, `dpa4spin/kk`, `nve/spin`,
-`langevin/spin`, `spring/spin/mod`, `msd/spin`, and `msd/spin/mod`.
+`nve/spin/kk`, `langevin/spin`, `spring/spin/mod`, `msd/spin`, and
+`msd/spin/mod`.
 Every library reported by `ldd` must resolve to the intended DeePMD,
 libtorch, CUDA, and MPI installation. These commands target the Linux
 deployment host; a Mac checkout used to manage this repository does not
@@ -171,16 +172,20 @@ atom_style spin/kk
 read_data conf.lmp
 run_style verlet/kk
 pair_style dpa4spin/kk model.pt2
+fix integrate all nve/spin/kk lattice_flag yes spin_flag yes
 ```
 
-Keep the Newtonian integration fixes unsuffixed. A global `-sf kk` can select
-`nvt/kk` or `npt/kk`, which do not implement this fork's spin state. The
-`spin/kk` atom style stores Newtonian spin velocity and inertia on the host;
-Kokkos device sorting applies its atom permutation to those host arrays, so
-they follow their atoms. Because the Newtonian integrators advance positions
-and spins on the host, the KOKKOS package also packs the forward
-communication of ghost atoms on the host while one of them is active, unless
-`package kokkos comm` or `comm/forward` is set explicitly.
+`fix nve/spin/kk` integrates the lattice and the spins on the device, so a
+Newtonian NVE step moves no per-atom data between host and device; a global
+`-sf kk` selects it for `fix nve/spin`. Keep the Newtonian Nose-Hoover styles
+unsuffixed: `-sf kk` would select `nvt/kk` or `npt/kk`, which do not
+implement this fork's spin state. The `spin/kk` atom style keeps the
+Newtonian spin velocity and inertia in dual views like the other per-atom
+arrays. The host styles `fix nve/spin`, `fix langevin/spin`, and the
+Nose-Hoover extension read and write them on the host. While such a
+time-integration fix runs on the host, the KOKKOS package packs the forward
+communication of ghost atoms on the host, unless `package kokkos comm` or
+`comm/forward` is set explicitly.
 
 ### 5. Export a compatible DeePMD native-spin model
 
@@ -344,6 +349,14 @@ V_S(t + dt)   = V_S(t + dt/2) + dt * F_S(t + dt) / (2 I)
 
 After the drift, `S` is decomposed back into unit direction and magnitude.
 The magnitude is not constrained.
+
+Under the KOKKOS package `fix nve/spin/kk` performs the same update on the
+device. Each operation is rounded on its own and evaluated in the order of
+the host fix, so in double precision its trajectories agree with
+`fix nve/spin` bit for bit wherever the host compiler does not contract
+multiply-adds. A spin vector whose magnitude becomes non-finite stops the run
+at the next thermo output or at the end of the run, rather than in the step
+in which it occurs.
 
 ### 11. Newtonian NVT with Langevin thermostats
 
@@ -541,7 +554,8 @@ Supported:
 - `units metal`;
 - built-in `pair_style dpa4spin/kk` or `dpa4spin/kk/device`;
 - `atom_style spin/kk` and the Kokkos Verlet run style;
-- host Newtonian `nve/spin`, `nvt`, and `npt` fixes;
+- Newtonian `nve/spin` on the host or as `nve/spin/kk` on the device, and
+  host Newtonian `nvt` and `npt` fixes;
 - single-rank and MPI domain decomposition;
 - CUDA native-spin PT2 models with the `dpa4c_canonical` lower schema.
 
@@ -656,15 +670,15 @@ The field registration covers:
 Ghost atoms do not carry spin velocity or inertia because DeePMD inference
 only needs ghost `sp`. This avoids unnecessary per-step communication.
 
-Under Kokkos, `src/KOKKOS/atom_vec_spin_kokkos.cpp` keeps both arrays on the
-host, where the Newtonian fixes read and write them. Device sorting permutes
-the dual views on the device and applies the same permutation, copied to the
-host, to these two arrays, so sorting does not move the other per-atom arrays
-through the host. The KOKKOS exchange packs dual views only and fills the slot
-of a departing atom by copying dual views only, so with more than one rank or
-a non-periodic boundary, where atoms migrate or are lost, the style selects
-the legacy exchange, which handles both arrays with the other registered
-fields.
+Under Kokkos, `src/KOKKOS/atom_vec_spin_kokkos.cpp` holds both arrays in dual
+views (`k_spin_velocity` and `k_spin_mass`, with the masks `SPV_MASK` and
+`SPM_MASK`), sorts them on the device with the other per-atom arrays, and
+copies them to the device in `init()`, since commands between runs such as
+`velocity` and `read_restart` write them on the host. The KOKKOS exchange
+functors do not pack them and fill the slot of a departing atom without
+them, so with more than one rank or a non-periodic boundary, where atoms
+migrate or are lost, the style selects the legacy exchange, which handles
+both arrays with the other registered fields.
 
 #### 19.3 Newtonian integrator
 
@@ -679,17 +693,26 @@ The implementation:
 - verifies that inertia was initialized;
 - rejects incompatible force producers and integration modes.
 
-Under Kokkos the fix runs on the host and declares the per-atom arrays it
-reads and writes through `datamask_read` and `datamask_modify`, so the
-KOKKOS package synchronizes only positions, velocities, spins, forces,
-magnetic forces, types, per-atom masses, and group masks around it.
-`KokkosLMP::select_forward_comm()` in `src/KOKKOS/kokkos.cpp` makes the
-KOKKOS comm styles pack forward communication on the host while a
+`src/KOKKOS/fix_nve_spin_kokkos.{h,cpp}` implements `fix nve/spin/kk`. One
+device kernel per half step applies the lattice and spin kicks and, in the
+first half step, the drifts and the split of `S` into direction and
+magnitude, with the separately rounded operations of
+`src/KOKKOS/math_rounded_kokkos.h` in the order of the host fix. A
+non-finite magnitude sets a device flag, which the fix reads at thermo
+output steps and at the end of a run.
+
+The host fix declares the per-atom arrays it reads and writes through
+`datamask_read` and `datamask_modify`, so under Kokkos the package
+synchronizes only positions, velocities, spins, spin velocities and
+inertia, forces, magnetic forces, types, per-atom masses, and group masks
+around it. `KokkosLMP::select_forward_comm()` in `src/KOKKOS/kokkos.cpp`
+makes the KOKKOS comm styles pack forward communication on the host while a
 time-integration fix runs on the host and no `comm` or `comm/forward` setting
 was given; the coordinates are then not copied to the device for packing and
 back for the next step. For the same reason `NeighborKokkos::check_distance()`
 checks the displacements since the last neighbor-list build on the host while
-the host holds the newer coordinates.
+the host holds the newer coordinates. With `fix nve/spin/kk` both stay on the
+device.
 
 #### 19.4 Langevin thermostat
 
@@ -1128,9 +1151,9 @@ Before distributing a port:
 - Upstream `spin/*` pair and precession force conventions cannot be mixed.
 - RESPA is unsupported.
 - Suffixed Newtonian spin Nose-Hoover styles are unsupported.
-- The Newtonian integrators and spin thermostats run on the host, so a Kokkos
-  run copies forces and magnetic forces to the host and positions and spins
-  to the device every step.
+- `fix langevin/spin` and the Newtonian Nose-Hoover extension run on the
+  host, so with either of them a Kokkos run moves per-atom data between host
+  and device every step.
 - The NVT/NPT extension uses one Nose-Hoover chain for lattice and spin
   kinetic modes; it does not provide independent parallel and transverse
   chains.

@@ -254,6 +254,8 @@ action fix_nve_limit_kokkos.cpp
 action fix_nve_limit_kokkos.h
 action fix_nve_sphere_kokkos.cpp
 action fix_nve_sphere_kokkos.h
+action fix_nve_spin_kokkos.cpp fix_nve_spin.cpp
+action fix_nve_spin_kokkos.h fix_nve_spin.h
 action fix_nve_asphere_kokkos.cpp fix_nve_asphere.cpp
 action fix_nve_asphere_kokkos.h fix_nve_asphere.h
 action fix_nve_noforce_kokkos.cpp

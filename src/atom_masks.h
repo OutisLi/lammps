@@ -84,4 +84,9 @@
 
 #define MASS_MASK      0x0000040000000000
 
+// SPIN: Newtonian spin velocity and inertia
+
+#define SPV_MASK       0x0000080000000000
+#define SPM_MASK       0x0000100000000000
+
 #endif

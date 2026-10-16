@@ -59,8 +59,8 @@ FixNVESpin::FixNVESpin(LAMMPS *lmp, int narg, char **arg) :
   // scatter of an accelerated pair style. Only the arrays this fix touches
   // are declared, and only the coordinates it advances are declared modified.
   datamask_read = X_MASK | V_MASK | F_MASK | SP_MASK | FM_MASK | TYPE_MASK |
-      RMASS_MASK | MASK_MASK;
-  datamask_modify = X_MASK | V_MASK | SP_MASK;
+      RMASS_MASK | MASK_MASK | SPV_MASK | SPM_MASK;
+  datamask_modify = X_MASK | V_MASK | SP_MASK | SPV_MASK;
 }
 
 /* ---------------------------------------------------------------------- */

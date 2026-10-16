@@ -1,7 +1,10 @@
 .. index:: fix nve/spin
+.. index:: fix nve/spin/kk
 
 fix nve/spin command
 ====================
+
+Accelerator Variants: *nve/spin/kk*
 
 Syntax
 """"""
@@ -51,6 +54,10 @@ according to the implementation reported in :ref:`(Omelyan) <Omelyan1>`.
 A sectoring method enables this scheme for parallel calculations.
 The implementation of this sectoring algorithm is reported
 in :ref:`(Tranchida) <Tranchida1>`.
+
+----------
+
+.. include:: accel_styles.rst
 
 ----------
 

@@ -34,8 +34,6 @@
 #include "memory_kokkos.h"
 #include "modify.h"
 
-#include <vector>
-
 using namespace LAMMPS_NS;
 
 static constexpr int DELTA = 10;
@@ -55,14 +53,11 @@ void AtomVecSpinKokkos::init()
 {
   AtomVecSpin::init();
 
-  // The Newtonian spin velocity and inertia are read and written only by host
-  // fixes, so they are kept as plain host arrays rather than dual views: a
-  // device residency they never use would cost a synchronization per step.
-  // Device sorting applies its permutation to them on the host, see
-  // sort_kokkos(). The KOKKOS exchange packs dual views only and fills the
-  // slot of a departing atom by copying dual views only, so atoms that
-  // migrate to another rank or are lost through a non-periodic boundary
-  // would separate the two arrays from their atoms. With more than one rank
+  // The KOKKOS exchange packs, unpacks and moves the per-atom fields its
+  // functors know, which do not include the Newtonian spin velocity and
+  // inertia, and it fills the slot of a departing atom the same way, so atoms
+  // that migrate to another rank or are lost through a non-periodic boundary
+  // would separate those two arrays from their atoms. With more than one rank
   // or a non-periodic boundary this style therefore selects the legacy
   // exchange, which handles every field that AtomVecSpin registers. The
   // setting is made on the package because CommKokkos::init() copies it
@@ -79,6 +74,14 @@ void AtomVecSpinKokkos::init()
   }
 
   set_atom_masks();
+
+  // Commands between runs (velocity, read_data, read_restart, ...) write the
+  // Newtonian spin velocity and inertia through the host arrays, and the setup
+  // of a run, unlike for positions, velocities and spins, has no step that
+  // carries them to the device. Outside a run auto_sync treats the host copies
+  // as current, so this sync brings the device copies up to date.
+
+  atomKK->sync(Device, SPV_MASK | SPM_MASK);
 }
 
 /* ----------------------------------------------------------------------
@@ -116,10 +119,10 @@ void AtomVecSpinKokkos::grow(int n)
   memoryKK->grow_kokkos(atomKK->k_fm,atomKK->fm,nmax,"atom:fm");
   memoryKK->grow_kokkos(atomKK->k_fm_long,atomKK->fm_long,nmax,"atom:fm_long");
 
-  // allocating Newtonian spin state, which stays on the host
+  // allocating Newtonian spin state
 
-  memory->grow(atomKK->spin_velocity,nmax,3,"atom:spin_velocity");
-  memory->grow(atomKK->spin_mass,nmax,"atom:spin_mass");
+  memoryKK->grow_kokkos(atomKK->k_spin_velocity,atomKK->spin_velocity,nmax,"atom:spin_velocity");
+  memoryKK->grow_kokkos(atomKK->k_spin_mass,atomKK->spin_mass,nmax,"atom:spin_mass");
 
   grow_pointers();
   atomKK->sync(Host,ALL_MASK);
@@ -179,7 +182,8 @@ void AtomVecSpinKokkos::grow_pointers()
 
 void AtomVecSpinKokkos::sort_kokkos(Kokkos::BinSort<KeyViewType, BinOp> &Sorter)
 {
-  atomKK->sync(Device, TAG_MASK|TYPE_MASK|MASK_MASK|IMAGE_MASK|X_MASK|V_MASK|SP_MASK);
+  atomKK->sync(Device, TAG_MASK|TYPE_MASK|MASK_MASK|IMAGE_MASK|X_MASK|V_MASK|SP_MASK|
+               SPV_MASK|SPM_MASK);
 
   Sorter.sort(LMPDeviceType(), d_tag);
   Sorter.sort(LMPDeviceType(), d_type);
@@ -188,30 +192,11 @@ void AtomVecSpinKokkos::sort_kokkos(Kokkos::BinSort<KeyViewType, BinOp> &Sorter)
   Sorter.sort(LMPDeviceType(), d_x);
   Sorter.sort(LMPDeviceType(), d_v);
   Sorter.sort(LMPDeviceType(), d_sp);
+  Sorter.sort(LMPDeviceType(), atomKK->k_spin_velocity.view_device());
+  Sorter.sort(LMPDeviceType(), atomKK->k_spin_mass.view_device());
 
-  atomKK->modified(Device, TAG_MASK|TYPE_MASK|MASK_MASK|IMAGE_MASK|X_MASK|V_MASK|SP_MASK);
-
-  // The Newtonian spin velocity and inertia live on the host only, so the
-  // device permutation is applied to them there: sorted slot i receives the
-  // state of the atom previously in slot permute(i), as for the dual views.
-
-  auto h_permute = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(),
-                                                       Sorter.get_permute_vector());
-  const int nsort = h_permute.extent(0);
-  std::vector<double> sorted_velocity(3 * nsort), sorted_mass(nsort);
-  for (int i = 0; i < nsort; i++) {
-    const int j = h_permute(i);
-    sorted_velocity[3 * i + 0] = spin_velocity[j][0];
-    sorted_velocity[3 * i + 1] = spin_velocity[j][1];
-    sorted_velocity[3 * i + 2] = spin_velocity[j][2];
-    sorted_mass[i] = spin_mass[j];
-  }
-  for (int i = 0; i < nsort; i++) {
-    spin_velocity[i][0] = sorted_velocity[3 * i + 0];
-    spin_velocity[i][1] = sorted_velocity[3 * i + 1];
-    spin_velocity[i][2] = sorted_velocity[3 * i + 2];
-    spin_mass[i] = sorted_mass[i];
-  }
+  atomKK->modified(Device, TAG_MASK|TYPE_MASK|MASK_MASK|IMAGE_MASK|X_MASK|V_MASK|SP_MASK|
+                   SPV_MASK|SPM_MASK);
 }
 
 /* ----------------------------------------------------------------------
@@ -261,6 +246,8 @@ void AtomVecSpinKokkos::sync(ExecutionSpace space, uint64_t mask)
     if (mask & SP_MASK) atomKK->k_sp.sync_device();
     if (mask & FM_MASK) atomKK->k_fm.sync_device();
     if (mask & FML_MASK) atomKK->k_fm_long.sync_device();
+    if (mask & SPV_MASK) atomKK->k_spin_velocity.sync_device();
+    if (mask & SPM_MASK) atomKK->k_spin_mass.sync_device();
   } else if (space == Host) {
     if (mask & X_MASK) atomKK->k_x.sync_host();
     if (mask & V_MASK) atomKK->k_v.sync_host();
@@ -272,6 +259,8 @@ void AtomVecSpinKokkos::sync(ExecutionSpace space, uint64_t mask)
     if (mask & SP_MASK) atomKK->k_sp.sync_host();
     if (mask & FM_MASK) atomKK->k_fm.sync_host();
     if (mask & FML_MASK) atomKK->k_fm_long.sync_host();
+    if (mask & SPV_MASK) atomKK->k_spin_velocity.sync_host();
+    if (mask & SPM_MASK) atomKK->k_spin_mass.sync_host();
   } else if (space == HostKK) {
     if (mask & X_MASK) atomKK->k_x.sync_hostkk();
     if (mask & V_MASK) atomKK->k_v.sync_hostkk();
@@ -283,6 +272,8 @@ void AtomVecSpinKokkos::sync(ExecutionSpace space, uint64_t mask)
     if (mask & SP_MASK) atomKK->k_sp.sync_hostkk();
     if (mask & FM_MASK) atomKK->k_fm.sync_hostkk();
     if (mask & FML_MASK) atomKK->k_fm_long.sync_hostkk();
+    if (mask & SPV_MASK) atomKK->k_spin_velocity.sync_hostkk();
+    if (mask & SPM_MASK) atomKK->k_spin_mass.sync_hostkk();
   }
 }
 
@@ -301,6 +292,8 @@ void AtomVecSpinKokkos::modified(ExecutionSpace space, uint64_t mask)
     if (mask & SP_MASK) atomKK->k_sp.modify_device();
     if (mask & FM_MASK) atomKK->k_fm.modify_device();
     if (mask & FML_MASK) atomKK->k_fm_long.modify_device();
+    if (mask & SPV_MASK) atomKK->k_spin_velocity.modify_device();
+    if (mask & SPM_MASK) atomKK->k_spin_mass.modify_device();
   } else if (space == Host) {
     if (mask & X_MASK) atomKK->k_x.modify_host();
     if (mask & V_MASK) atomKK->k_v.modify_host();
@@ -312,6 +305,8 @@ void AtomVecSpinKokkos::modified(ExecutionSpace space, uint64_t mask)
     if (mask & SP_MASK) atomKK->k_sp.modify_host();
     if (mask & FM_MASK) atomKK->k_fm.modify_host();
     if (mask & FML_MASK) atomKK->k_fm_long.modify_host();
+    if (mask & SPV_MASK) atomKK->k_spin_velocity.modify_host();
+    if (mask & SPM_MASK) atomKK->k_spin_mass.modify_host();
   } else if (space == HostKK) {
     if (mask & X_MASK) atomKK->k_x.modify_hostkk();
     if (mask & V_MASK) atomKK->k_v.modify_hostkk();
@@ -323,6 +318,8 @@ void AtomVecSpinKokkos::modified(ExecutionSpace space, uint64_t mask)
     if (mask & SP_MASK) atomKK->k_sp.modify_hostkk();
     if (mask & FM_MASK) atomKK->k_fm.modify_hostkk();
     if (mask & FML_MASK) atomKK->k_fm_long.modify_hostkk();
+    if (mask & SPV_MASK) atomKK->k_spin_velocity.modify_hostkk();
+    if (mask & SPM_MASK) atomKK->k_spin_mass.modify_hostkk();
   }
 }
 
@@ -349,6 +346,10 @@ void AtomVecSpinKokkos::sync_pinned(ExecutionSpace space, uint64_t mask, int asy
       perform_pinned_copy_transform<DAT::ttransform_kkacc_1d_3>(atomKK->k_fm,space,async_flag);
     if ((mask & FML_MASK) && atomKK->k_fm_long.need_sync_device())
       perform_pinned_copy_transform<DAT::ttransform_kkacc_1d_3>(atomKK->k_fm_long,space,async_flag);
+    if ((mask & SPV_MASK) && atomKK->k_spin_velocity.need_sync_device())
+      perform_pinned_copy_transform<DAT::ttransform_kkfloat_1d_3>(atomKK->k_spin_velocity,space,async_flag);
+    if ((mask & SPM_MASK) && atomKK->k_spin_mass.need_sync_device())
+      perform_pinned_copy_transform<DAT::ttransform_kkfloat_1d>(atomKK->k_spin_mass,space,async_flag);
   } else {
     if ((mask & X_MASK) && atomKK->k_x.need_sync_host())
       perform_pinned_copy_transform<DAT::ttransform_kkfloat_1d_3_lr>(atomKK->k_x,space,async_flag);
@@ -370,5 +371,9 @@ void AtomVecSpinKokkos::sync_pinned(ExecutionSpace space, uint64_t mask, int asy
       perform_pinned_copy_transform<DAT::ttransform_kkacc_1d_3>(atomKK->k_fm,space,async_flag);
     if ((mask & FML_MASK) && atomKK->k_fm_long.need_sync_host())
       perform_pinned_copy_transform<DAT::ttransform_kkacc_1d_3>(atomKK->k_fm_long,space,async_flag);
+    if ((mask & SPV_MASK) && atomKK->k_spin_velocity.need_sync_host())
+      perform_pinned_copy_transform<DAT::ttransform_kkfloat_1d_3>(atomKK->k_spin_velocity,space,async_flag);
+    if ((mask & SPM_MASK) && atomKK->k_spin_mass.need_sync_host())
+      perform_pinned_copy_transform<DAT::ttransform_kkfloat_1d>(atomKK->k_spin_mass,space,async_flag);
   }
 }

@@ -62,7 +62,7 @@ FixLangevinSpin::FixLangevinSpin(LAMMPS *lmp, int narg, char **arg) :
   // from these masks. The default claims every array; only the arrays this
   // fix touches are declared, and the magnetic force it adds to is the one
   // array it declares modified.
-  datamask_read = SP_MASK | FM_MASK | MASK_MASK;
+  datamask_read = SP_MASK | FM_MASK | MASK_MASK | SPV_MASK | SPM_MASK;
   datamask_modify = FM_MASK;
 }
 

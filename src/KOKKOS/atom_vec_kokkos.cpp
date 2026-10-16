@@ -2961,6 +2961,10 @@ uint64_t AtomVecKokkos::field2mask(std::string field)
     return FM_MASK;
   else if (field == "fm_long")
     return FML_MASK;
+  else if (field == "spin_velocity")
+    return SPV_MASK;
+  else if (field == "spin_mass")
+    return SPM_MASK;
   else if (field == "rho") // conflicts with SPH package "rho"
     return DPDRHO_MASK;
   else if (field == "dpdTheta")
@@ -3010,6 +3014,8 @@ int AtomVecKokkos::field2size(std::string field)
   else if (field == "sp") return 4;
   else if (field == "fm") return 3;
   else if (field == "fm_long") return 3;
+  else if (field == "spin_velocity") return 3;
+  else if (field == "spin_mass") return 1;
   else if (field == "rho") return 1;
   else if (field == "dpdTheta") return 1;
   else if (field == "uCond") return 1;

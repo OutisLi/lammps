@@ -71,6 +71,8 @@ class AtomKokkos : public Atom {
   DAT::ttransform_kkfloat_1d_4 k_sp;
   DAT::ttransform_kkacc_1d_3 k_fm;
   DAT::ttransform_kkacc_1d_3 k_fm_long;
+  DAT::ttransform_kkfloat_1d_3 k_spin_velocity;
+  DAT::ttransform_kkfloat_1d k_spin_mass;
 
   // DPD-REACT package
 

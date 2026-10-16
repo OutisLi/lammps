@@ -39,9 +39,10 @@ class FixNVESpin : public Fix {
   int lattice_flag;
   int spin_flag;
 
- private:
+ protected:
   double dtv, dtf;
 
+ private:
   void update_lattice(bool);
   void update_spins(bool);
 };

@@ -108,6 +108,8 @@ AtomKokkos::~AtomKokkos()
   memoryKK->destroy_kokkos(k_sp, sp);
   memoryKK->destroy_kokkos(k_fm, fm);
   memoryKK->destroy_kokkos(k_fm_long, fm_long);
+  memoryKK->destroy_kokkos(k_spin_velocity, spin_velocity);
+  memoryKK->destroy_kokkos(k_spin_mass, spin_mass);
 
   // DPD-REACT package
   memoryKK->destroy_kokkos(k_uCond, uCond);
