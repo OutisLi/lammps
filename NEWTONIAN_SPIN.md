@@ -21,21 +21,24 @@ This document has two parts:
 
 ### 1. Scope and requirements
 
-The deployment path is the built-in Kokkos device pair style:
+The deployment path is the Kokkos device pair style of the DeePMD-kit LAMMPS
+plugin:
 
 - LAMMPS `atom_style spin/kk` and `run_style verlet/kk`;
-- `pair_style dpa4spin/kk`, or its `dpa4spin/kk/device` alias;
+- `pair_style dpa4spin/kk`, or its `dpa4spin/kk/device` alias, with
+  `magnetic_force cartesian`;
 - a CUDA native-spin PT2 model using the `dpa4c_canonical` lower schema;
 - magnetic output `force_mag = -dE/dS`;
 - `units metal`;
 - single-rank and MPI domain-decomposed execution.
 
 Non-spin simulations retain the ordinary LAMMPS integration path. The
-`deepmd` and `deepmd/kk` interfaces are copied without modification, and
-standard `nve`, `nvt`, `npt`, and `nph` fixes do not enable spin dynamics by
-default. The Kokkos suffix is supported for these non-spin simulations;
-the restriction on suffixed Nose-Hoover fixes applies only when spin
-integration is enabled. Classical potentials require their usual packages.
+`deepmd` and `deepmd/kk` pair styles of the plugin serve them as they do with
+upstream LAMMPS, and standard `nve`, `nvt`, `npt`, and `nph` fixes do not
+enable spin dynamics by default. The Kokkos suffix is supported for these
+non-spin simulations; the restriction on suffixed Nose-Hoover fixes applies
+only when spin integration is enabled. Classical potentials require their
+usual packages.
 
 The names `nve/spin` and `langevin/spin` in this fork implement Newtonian
 dynamics, so upstream fixed-magnitude spin inputs are a separate case and
@@ -46,21 +49,18 @@ Required build dependencies:
 - a C++20 compiler compatible with CUDA and the selected libtorch;
 - CMake 3.27 or newer, Git, and Ninja or Make;
 - an MPI implementation when `BUILD_MPI=ON`;
-- a DeePMD-kit source checkout and the C/C++ libraries built from that revision;
-- the PyTorch Exportable backend, its matching libtorch CMake package, and CUDA.
+- DeePMD-kit with its C/C++ interface and LAMMPS plugin, at a revision that
+  writes the Cartesian magnetic force in the `dpa4spin` styles
+  ([deepmd-kit#6084](https://github.com/deepmodeling/deepmd-kit/pull/6084));
+- the PyTorch Exportable backend, its matching libtorch, and CUDA.
 
-The MPI compiler, MPI launcher, LAMMPS binary, and DeePMD libraries must use
-the same MPI ABI. This includes `libdeepmd_op_pt.so`, which can be loaded only
-when a PT2 model is opened; a successful `lmp -h` does not verify that path.
-Check the MPI library paths printed by CMake as well as the compiler wrapper.
-Do not mix libraries or PMIx components from unrelated system or Conda MPI
-installations.
-
-This repository contains the LAMMPS changes and a small interface patch. It
-does not contain a copy of DeePMD-kit. CMake copies the required interface
-files from the external source tree into its own build directory, patches
-that copy, and includes its `builtin.cmake`. The external source checkout
-and installed DeePMD libraries remain unchanged.
+LAMMPS, the DeePMD-kit C/C++ interface with its plugin, the MPI compilers,
+and the MPI launcher must use the same MPI library. Check the MPI library paths
+printed by CMake as well as the compiler wrappers, and do not mix libraries or
+PMIx components from unrelated system or Conda MPI installations. `lmp -h`
+loads no DeePMD-kit library, and the plugin loads the DeePMD-kit operator
+library only when a PT2 model is opened, so neither `lmp -h` nor the plugin
+listing of section 4 verifies the complete library chain.
 
 ### 2. Obtain the source and select DeePMD
 
@@ -73,27 +73,15 @@ git clone --branch outisli https://github.com/OutisLi/lammps.git lammps-outisli
 cd lammps-outisli
 
 SOURCE_ROOT=$PWD
+INSTALL_ROOT=/path/to/lammps-newtonian-spin
 DEEPMD_SOURCE_ROOT=/path/to/deepmd-kit
 DEEPMD_ROOT=/path/to/deepmd/install
-TORCH_CMAKE_PREFIX=/path/to/libtorch/share/cmake
-INSTALL_ROOT=/path/to/lammps-newtonian-spin
 ```
 
-Use the same DeePMD source revision that produced `DEEPMD_ROOT`. For a
-Python-installed PyTorch package, obtain its CMake prefix with:
+`DEEPMD_SOURCE_ROOT` is the DeePMD-kit checkout whose C/C++ interface builds
+the plugin in section 3, and `DEEPMD_ROOT` is its install prefix.
 
-```bash
-TORCH_CMAKE_PREFIX=$(python -c 'import torch; print(torch.utils.cmake_prefix_path)')
-```
-
-The adapter patch is based on DeePMD-kit revision
-`37f2f6c90d49c8c490dd1f6aaf27b1431a6331a5` and also applies to upstream
-`025f4f698d4ff50c0b5538f19dc0b00ad1459ba3`. These are source compatibility
-baselines, not GPU runtime validation results. CMake stops if the patch does
-not apply to the selected interface; changing the source revision requires
-checking the interface and validating the resulting executable.
-
-### 3. Build the built-in CUDA/Kokkos interface
+### 3. Build LAMMPS and the DeePMD-kit plugin
 
 ```bash
 cmake -S cmake -B build -G Ninja \
@@ -104,15 +92,13 @@ cmake -S cmake -B build -G Ninja \
   -DPKG_SPIN=ON \
   -DPKG_KSPACE=ON \
   -DPKG_EXTRA-FIX=ON \
+  -DPKG_PLUGIN=ON \
   -DPKG_KOKKOS=ON \
   -DKokkos_ENABLE_SERIAL=ON \
   -DKokkos_ENABLE_CUDA=ON \
   -DKokkos_ARCH_HOPPER90=ON \
   -DCMAKE_CXX_COMPILER="${SOURCE_ROOT}/lib/kokkos/bin/nvcc_wrapper" \
   -DMPI_CXX_COMPILER=/path/to/matching/mpicxx \
-  -DDEEPMD_SOURCE_ROOT="${DEEPMD_SOURCE_ROOT}" \
-  -DCMAKE_PREFIX_PATH="${DEEPMD_ROOT};${TORCH_CMAKE_PREFIX}" \
-  -DDeePMD_DIR="${DEEPMD_ROOT}/lib/cmake/DeePMD" \
   -DCMAKE_INSTALL_PREFIX="${INSTALL_ROOT}" \
   -DLAMMPS_INSTALL_RPATH=ON
 
@@ -125,34 +111,54 @@ GPU. The Kokkos architecture, PT2 artifact, CUDA, and libtorch must be
 compatible with that device. If MPI is not needed, use `-DBUILD_MPI=OFF` and
 omit `MPI_CXX_COMPILER`.
 
-The generated interface is under
-`build/CMakeFiles/deepmd-newtonian-spin`. Reconfiguration recreates it from
-the external source and applies the patch once. Do not edit this generated
-directory; maintain the patch in `cmake/patches` instead. Removing it or the
-build directory does not remove the external DeePMD source.
-
-An unset `DEEPMD_SOURCE_ROOT` leaves the DeePMD interface out of the build.
-That configuration can build LAMMPS and its independent unit tests, but it
-does not provide a DeePMD pair style for Newtonian spin simulations.
-
-### 4. Verify and launch the built-in executable
-
-Do not load a separate DeePMD plugin into this executable. An unpatched
-plugin can replace the built-in style with the upstream precession-force
-implementation, which the Newtonian integrators reject. Remove any
-`plugin load` command for DeePMD from the input and clear automatic plugin
-loading:
+Then configure the DeePMD-kit C/C++ interface against this source tree, with
+the backend options of its installation guide, so that it builds the plugin
+with the Kokkos styles. CMake looks up the MPI of C and of C++ separately, so
+name both compiler wrappers, and configure a new build directory when the MPI
+library changes:
 
 ```bash
-unset LAMMPS_PLUGIN_PATH
+cmake -S "${DEEPMD_SOURCE_ROOT}/source" -B "${DEEPMD_SOURCE_ROOT}/source/build" \
+  -DCMAKE_INSTALL_PREFIX="${DEEPMD_ROOT}" \
+  -DLAMMPS_SOURCE_ROOT="${SOURCE_ROOT}" \
+  -DDEEPMD_LAMMPS_KOKKOS=ON \
+  -DKokkos_DIR="${SOURCE_ROOT}/build/lib/kokkos" \
+  -DKokkos_COMPILE_LAUNCHER="${SOURCE_ROOT}/lib/kokkos/bin/kokkos_launch_compiler" \
+  -DKokkos_NVCC_WRAPPER="${SOURCE_ROOT}/lib/kokkos/bin/nvcc_wrapper" \
+  -DMPI_C_COMPILER=/path/to/matching/mpicc \
+  -DMPI_CXX_COMPILER=/path/to/matching/mpicxx
+
+cmake --build "${DEEPMD_SOURCE_ROOT}/source/build" --parallel
+cmake --install "${DEEPMD_SOURCE_ROOT}/source/build"
+```
+
+The plugin is installed as `${DEEPMD_ROOT}/lib/deepmd_lmp/dpplugin.so`. It is
+compiled against the headers and the Kokkos configuration of this LAMMPS
+build, so rebuild and reinstall it whenever LAMMPS is rebuilt. A change of the
+DeePMD-kit sources needs the DeePMD-kit build and install above repeated, not
+a LAMMPS rebuild.
+
+### 4. Verify and launch
+
+LAMMPS loads every file ending in `plugin.so` in the directories of
+`LAMMPS_PLUGIN_PATH` when it creates an instance. It opens the plugin through
+its link in `lib/deepmd_lmp`, from where the plugin does not find the
+DeePMD-kit libraries in `lib`, so that directory goes on the library path:
+
+```bash
+export LAMMPS_PLUGIN_PATH="${DEEPMD_ROOT}/lib/deepmd_lmp"
+export LD_LIBRARY_PATH="${DEEPMD_ROOT}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 "${INSTALL_ROOT}/bin/lmp" -h
+echo "plugin list" | "${INSTALL_ROOT}/bin/lmp" -log none
 ldd "${INSTALL_ROOT}/bin/lmp"
+ldd "${DEEPMD_ROOT}/lib/deepmd_lmp/dpplugin.so"
 ldd "${DEEPMD_ROOT}/lib/libdeepmd_op_pt.so"
 ```
 
-The style listing must contain `spin/kk`, `dpa4spin/kk`, `nve/spin`,
-`nve/spin/kk`, `langevin/spin`, `spring/spin/mod`, `msd/spin`, and
-`msd/spin/mod`.
+`-h` exits before any plugin is loaded and lists the compiled-in styles, which
+must include `spin/kk`, `nve/spin`, `nve/spin/kk`, `langevin/spin`,
+`spring/spin/mod`, `msd/spin`, and `msd/spin/mod`; `plugin list` must show the
+pair styles `dpa4spin/kk` and `dpa4spin/kk/device`.
 Every library reported by `ldd` must resolve to the intended DeePMD,
 libtorch, CUDA, and MPI installation. These commands target the Linux
 deployment host; a Mac checkout used to manage this repository does not
@@ -164,14 +170,15 @@ Launch a single GPU with:
 "${INSTALL_ROOT}/bin/lmp" -k on g 1 -in in.lammps
 ```
 
-Select the accelerated atom, pair, and run styles explicitly in the input.
+Select the accelerated atom, pair, and run styles explicitly in the input,
+together with the Cartesian magnetic force of the pair style (section 8).
 The simulation box must exist before selecting the run style:
 
 ```lammps
 atom_style spin/kk
 read_data conf.lmp
 run_style verlet/kk
-pair_style dpa4spin/kk model.pt2
+pair_style dpa4spin/kk model.pt2 magnetic_force cartesian
 fix integrate all nve/spin/kk lattice_flag yes spin_flag yes
 ```
 
@@ -288,11 +295,11 @@ factors applicable to the generalized Cartesian spin coordinate.
 
 ### 8. DeePMD pair style and element mapping
 
-Use the built-in Newtonian Kokkos style with a native-spin compact canonical
-PT2 artifact and `atom_style spin/kk`:
+Use the Kokkos style of the plugin with a native-spin compact canonical PT2
+artifact and `atom_style spin/kk`, and select the Cartesian magnetic force:
 
 ```lammps
-pair_style dpa4spin/kk model.pt2
+pair_style dpa4spin/kk model.pt2 magnetic_force cartesian
 pair_coeff * * Fe
 ```
 
@@ -300,10 +307,15 @@ List element names explicitly in `pair_coeff`. A bare `pair_coeff * *` maps
 LAMMPS types to the first model types by position and is unsafe for models
 whose type map contains more species than the simulated system.
 
-The patch changes only `dpa4spin/kk` and its device alias. The unmodified
-`deepspin` and unsuffixed `dpa4spin` interfaces may appear in the executable,
-but they retain the upstream precession convention and cannot drive the
-Newtonian integrators. The Kokkos host alias does not support model execution.
+Under `magnetic_force cartesian`, which requires `units metal`, the pair
+style writes the raw `-dE/dS` and declares that convention (section 20.2).
+Under the default `magnetic_force precession` it writes the precession field
+that the upstream SPIN package expects, which the Newtonian integrators reject,
+as they reject the `deepspin` style. The host style `dpa4spin` declares the
+Cartesian convention under `magnetic_force cartesian` as well, so the
+integrators accept it too; the validation of Part II covers the device style.
+The host alias `dpa4spin/kk/host` stops with an error, because the Kokkos
+style runs on the GPU only.
 
 Use a direct pair style. Hybrid combinations are rejected because their
 sub-styles may accumulate different magnetic-force conventions into `fm`.
@@ -471,7 +483,7 @@ mass 1 55.845
 neighbor 1.0 bin
 timestep 0.0005
 
-pair_style dpa4spin/kk model.pt2
+pair_style dpa4spin/kk model.pt2 magnetic_force cartesian
 pair_coeff * * Fe
 
 velocity all create 1300.0 14884 spin yes spmass 0.1
@@ -508,7 +520,7 @@ units metal
 read_restart state.restart
 run_style verlet/kk
 
-pair_style dpa4spin/kk model.pt2
+pair_style dpa4spin/kk model.pt2 magnetic_force cartesian
 pair_coeff * * Fe
 
 fix integrate all nve/spin lattice_flag yes spin_flag yes
@@ -521,7 +533,19 @@ trajectory.
 
 ### 16. Generic MPI and multi-GPU launch
 
-Use the MPI launcher from the same MPI installation used to compile LAMMPS:
+Use the MPI launcher from the same MPI installation used to compile LAMMPS and
+the DeePMD-kit C/C++ interface. On several GPUs this should be an MPI library
+that can access GPU memory (CUDA-aware MPI), such as Open MPI with UCX: with an
+MPI library without CUDA support, or with that support disabled, the KOKKOS
+package copies the positions and forces of every step through host memory.
+The Open MPI package of conda-forge, installed together with `ucx`, ships with
+its CUDA support disabled, which these settings enable at run time:
+
+```bash
+export OMPI_MCA_opal_cuda_support=true UCX_MEMTYPE_CACHE=n
+```
+
+A launch on four GPUs then reads:
 
 ```bash
 MPIEXEC=/path/to/matching/mpiexec
@@ -555,7 +579,8 @@ GPU. Benchmark with the production atom count and decomposition.
 Supported:
 
 - `units metal`;
-- built-in `pair_style dpa4spin/kk` or `dpa4spin/kk/device`;
+- `pair_style dpa4spin/kk` or `dpa4spin/kk/device` of the DeePMD-kit plugin
+  with `magnetic_force cartesian`;
 - `atom_style spin/kk` and the Kokkos Verlet run style;
 - Newtonian `nve/spin` on the host or as `nve/spin/kk` on the device, and
   host Newtonian `nvt` and `npt` fixes;
@@ -565,8 +590,9 @@ Supported:
 Rejected:
 
 - any pair style that does not declare the Cartesian magnetic force
-  convention, including the unpatched `deepspin`, unsuffixed `dpa4spin`, and
-  upstream fixed-magnitude `spin/*` force producers;
+  convention, including the `dpa4spin` styles under the default
+  `magnetic_force precession`, `deepspin`, and upstream fixed-magnitude
+  `spin/*` force producers;
 - hybrid pair styles, whose sub-styles may mix force conventions;
 - RESPA;
 - suffixed Nose-Hoover styles such as `npt/kk`, `npt/omp`, or `npt/gpu`;
@@ -598,8 +624,9 @@ force_mag = -dE/dS
 ```
 
 This is the Cartesian force conjugate to the complete spin vector. The
-unmodified DeePMD LAMMPS spin interfaces convert it to a precession quantity
-proportional to
+`deepspin` style, and the `dpa4spin` styles under their default
+`magnetic_force precession`, convert it to a precession quantity proportional
+to
 
 ```text
 force_mag * |S| / hbar
@@ -609,7 +636,8 @@ That conversion discards the direct generalized-force interpretation needed
 by a second-order Cartesian integrator. It also prevents direct evolution of
 spin magnitude.
 
-This fork keeps the raw `-dE/dS` value and uses it in a Newtonian equation:
+Under `magnetic_force cartesian` the `dpa4spin` styles keep the raw `-dE/dS`
+value, which this fork uses in a Newtonian equation:
 
 ```text
 I * d2S/dt2 = -dE/dS + thermostat forces
@@ -621,39 +649,21 @@ field with Newtonian integration, is physically incorrect.
 
 ### 19. Source changes relative to upstream LAMMPS
 
-#### 19.1 Built-in DeePMD adapter
+#### 19.1 DeePMD pair styles
 
-`cmake/Modules/DeepMDNewtonianSpin.cmake` reads `source/lmp` from the external
-`DEEPMD_SOURCE_ROOT`. It copies the adapter C++ sources, headers,
-`deepmd_version.h.in`, and `builtin.cmake` into
-`build/CMakeFiles/deepmd-newtonian-spin`; tests and plugin sources are excluded.
+This fork carries no DeePMD-kit code. The DeePMD pair styles come from the
+LAMMPS plugin of DeePMD-kit, which is built against this source tree. Under
+`magnetic_force cartesian`, its `dpa4spin` styles:
 
-`cmake/patches/deepmd-newtonian-spin.patch` changes only
-`pair_dpa4spin_kokkos.cpp` and `pair_dpa4spin_kokkos.h` in that generated copy:
+- write the magnetic force as the raw `-dE/dS` under energy-unit conversion;
+- omit the moment-magnitude and `hbar` conversion, including at zero moment;
+- declare `fm_cartesian_force` through `Pair::extract`.
 
-- magnetic force is written as the raw `-dE/dS` under energy-unit conversion;
-- the moment-magnitude and `hbar` conversion is omitted, including at zero
-  moment;
-- the Kokkos class declares `fm_cartesian_force` through `Pair::extract`;
-- the base host style and the separate `deepspin` interface remain unchanged.
-
-The patched copy's own `builtin.cmake` supplies the DeePMD build integration.
-The executable links the external, unmodified DeePMD libraries. Neither the
-external source checkout nor its installed libraries are written by this
-configuration step.
-
-Each CMake configuration recreates the generated adapter from its source and
-applies the patch once. An incompatible source fails configuration instead
-of falling back to an unpatched interface. Changes to adapter source files
-or the patch trigger CMake reconfiguration.
-
-The patch baseline is DeePMD-kit source revision
-`37f2f6c90d49c8c490dd1f6aaf27b1431a6331a5`. Patch applicability is a source
-compatibility check, not evidence of numerical correctness or binary
-compatibility. Use the same DeePMD revision for the adapter and installed
-libraries, and perform the validation in section 22 when changing it.
-Native interface support is tracked in
-[DeePMD-kit issue #6077](https://github.com/deepmodeling/deepmd-kit/issues/6077).
+DeePMD-kit provides this convention since
+[deepmd-kit#6084](https://github.com/deepmodeling/deepmd-kit/pull/6084), which
+resolves [issue #6077](https://github.com/deepmodeling/deepmd-kit/issues/6077).
+The DeePMD-kit C/C++ interface and its plugin are built against this source
+tree and its MPI library (section 3).
 
 #### 19.2 Per-atom state
 
@@ -837,9 +847,9 @@ integrators refuse to run otherwise. `src/spin_force_convention.h` holds the
 single check that `fix nve/spin` and the Nose-Hoover styles share.
 
 A pair style added later is covered by the same check and needs no change to
-the integrators. This also means that building this distribution against an
-unmodified DeePMD adapter fails at setup with a clear message instead of
-running the wrong dynamics.
+the integrators. A `dpa4spin` style left at its default
+`magnetic_force precession` therefore fails at setup with a clear message
+instead of running the wrong dynamics.
 
 #### 20.3 Complete state lifecycle
 
@@ -882,15 +892,9 @@ responsibility against the target LAMMPS API.
 Recommended sequence:
 
 1. Start from a clean target LAMMPS release.
-1. Port `cmake/Modules/DeepMDNewtonianSpin.cmake` and its patch, and include
-   `DeepMDNewtonianSpin` at the end of `cmake/CMakeLists.txt`.
-1. Select an external DeePMD source revision matching the installed libraries
-   and check that the patch applies to its Kokkos pair style.
 1. Port `spin_velocity` and `spin_mass` registration to the target `Atom` API.
 1. Port `AtomVecSpin` grow, copy, exchange, restart, create, and data
    initialization fields.
-1. Verify the raw magnetic-force convention and declaration in the generated
-   Kokkos adapter, without changing the external DeePMD checkout.
 1. Port Newtonian `fix nve/spin` against the target integration callbacks.
 1. Port spin Langevin and the counter RNG.
 1. Port velocity initialization.
@@ -898,6 +902,9 @@ Recommended sequence:
    suffix classes in the target release.
 1. Port thermo and analysis styles.
 1. Reconfigure from an empty build directory.
+1. Build the DeePMD-kit plugin against the port and confirm that
+   `dpa4spin/kk` under `magnetic_force cartesian` declares the Cartesian
+   convention.
 1. Execute every validation layer in the following section.
 
 LAMMPS APIs that commonly change between releases:
@@ -910,8 +917,8 @@ LAMMPS APIs that commonly change between releases:
 - FixNH derived classes;
 - CMake style discovery.
 
-Never copy generated style headers, object files, CMake caches, or an old
-DeePMD version header into a new port.
+Never copy generated style headers, object files, or CMake caches into a
+new port.
 
 ### 22. Correctness validation
 
@@ -929,11 +936,9 @@ cmake --build build-test --parallel
 build-test/lmp -h
 ```
 
-Confirm the expected built-in styles from section 4. Check that
-`git status --short` in the external DeePMD checkout is unchanged and that
-no adapter sources have been created in this fork's `src` directory.
-Reconfigure the same build directory and verify that patch application is
-repeatable. An incompatible adapter source must produce a CMake error.
+Confirm the styles that section 4 lists for `-h`; the DeePMD pair styles
+appear in the plugin listing once a plugin built against this tree is on
+`LAMMPS_PLUGIN_PATH`.
 
 #### 22.2 Counter RNG unit test
 
@@ -993,7 +998,8 @@ a small nonzero moment, evaluate:
 F_fd = -(E(S + h e_a) - E(S - h e_a)) / (2 h)
 ```
 
-Compare `F_fd` with the raw `fm` component returned by the patched `pair_style dpa4spin/kk`.
+Compare `F_fd` with the raw `fm` component that `pair_style dpa4spin/kk`
+returns under `magnetic_force cartesian`.
 
 Recommended initial settings:
 
@@ -1104,8 +1110,9 @@ Verify explicit failure for:
 - suffixed `nvt` or `npt`;
 - direct use without initialized spin inertia;
 - hybrid pair styles, including one whose sub-style declares the convention;
-- non-canonical, non-native-spin, or CPU-only model artifacts;
-- the unpatched external DeePMD plugin with Newtonian spin integration.
+- non-canonical, non-native-spin, or CPU-only model artifacts with
+  `dpa4spin/kk`;
+- a `dpa4spin` style under the default `magnetic_force precession`.
 
 #### 22.12 Performance validation
 
@@ -1137,7 +1144,7 @@ Before distributing a port:
 - run NVE, NVT, NPT, and thermodynamic-integration smoke tests;
 - inspect `ldd` for ABI consistency;
 - confirm native-spin compact canonical PT2 metadata;
-- record the LAMMPS revision, external DeePMD revision, and patch checksum;
+- record the LAMMPS and DeePMD-kit revisions;
 - remove build, install, cache, bytecode, editor, and simulation-output files;
 - archive exactly one top-level source directory;
 - publish a SHA256 checksum.
@@ -1146,11 +1153,11 @@ Before distributing a port:
 
 - Newtonian spin dynamics is not LLG or LLB.
 - Only `units metal` is supported.
-- Only the patched built-in `dpa4spin/kk` device path is supported for
-  Newtonian spin integration; the model must use the compact canonical schema.
-- The external DeePMD source and installed libraries must be compatible.
-- Loading an unpatched DeePMD plugin can override the built-in style and is
-  unsupported.
+- Newtonian spin integration is validated through the `dpa4spin/kk` device
+  path of the DeePMD-kit plugin under `magnetic_force cartesian`; that path
+  requires a model with the compact canonical schema.
+- The DeePMD-kit plugin must be built against this source tree, and the
+  DeePMD-kit C/C++ interface against its MPI library.
 - Upstream `spin/*` pair and precession force conventions cannot be mixed.
 - RESPA is unsupported.
 - Suffixed Newtonian spin Nose-Hoover styles are unsupported.

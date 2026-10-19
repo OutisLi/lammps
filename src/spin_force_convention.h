@@ -66,8 +66,8 @@ static inline void require_cartesian_magnetic_force(LAMMPS *lmp, const char *who
     lmp->error->all(FLERR,
                     "{} requires a pair style that writes the Cartesian "
                     "magnetic force -dE/dS, which pair style {} does not "
-                    "declare; use the built-in Newtonian dpa4spin/kk "
-                    "style",
+                    "declare; use dpa4spin/kk with magnetic_force "
+                    "cartesian",
                     who, lmp->force->pair_style);
 }
 

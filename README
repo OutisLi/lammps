@@ -4,8 +4,8 @@ The fork supports ordinary non-spin molecular dynamics simulations and adds
 optional Newtonian variable-magnitude spin dynamics for DeePMD. Standard
 non-spin nve, nvt, npt, and nph simulations retain the ordinary LAMMPS
 integration path. Classical simulations use the usual LAMMPS packages and
-build instructions; DeePMD-kit is required only for its corresponding
-interfaces.
+build instructions. DeePMD simulations load the DeePMD-kit pair styles from
+the LAMMPS plugin of DeePMD-kit, built against this source tree.
 
 Use the official LAMMPS build and simulation documentation linked below for
 ordinary simulations. NEWTONIAN_SPIN.md describes the optional spin

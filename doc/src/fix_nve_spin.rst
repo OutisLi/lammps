@@ -99,9 +99,10 @@ info.
 
 It requires atom style spin, metal units, a single pair style (not a
 hybrid style) that declares the Cartesian magnetic force, such as
-dpa4spin/kk, and spin inertia assigned to at least one atom of the group
-when *spin_flag* is *yes*. It cannot be combined with the fixes
-precession/spin or setforce/spin, and it does not support
+dpa4spin/kk with *magnetic_force* set to *cartesian*, and spin
+inertia assigned to at least one atom of the group when *spin_flag*
+is *yes*. It cannot be combined with the fixes precession/spin or
+setforce/spin, and it does not support
 :doc:`run_style respa <run_style>`.
 
 Related commands
