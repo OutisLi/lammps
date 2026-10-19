@@ -539,13 +539,11 @@ that can access GPU memory (CUDA-aware MPI), such as Open MPI with UCX: with an
 MPI library without CUDA support, or with that support disabled, the KOKKOS
 package copies the positions and forces of every step through host memory.
 The Open MPI package of conda-forge, installed together with `ucx`, ships with
-its CUDA support disabled, which these settings enable at run time:
-
-```bash
-export OMPI_MCA_opal_cuda_support=true UCX_MEMTYPE_CACHE=n
-```
-
-A launch on four GPUs then reads:
+its CUDA support disabled. A launch on several GPUs enables it on its command
+line, together with `UCX_MEMTYPE_CACHE=n`, without which UCX can take a GPU
+buffer for host memory and abort. A run on one GPU leaves it off: the support
+adds a memory-type query to every MPI call, which slows the step of a small
+system. With that Open MPI, a launch on four GPUs reads:
 
 ```bash
 MPIEXEC=/path/to/matching/mpiexec
@@ -554,7 +552,7 @@ LMP=/path/to/lammps-newtonian-spin/bin/lmp
 export CUDA_VISIBLE_DEVICES=0,1,2,3
 export OMP_NUM_THREADS=1
 
-"${MPIEXEC}" -n 4 "${LMP}" -k on g 4 -in in.lammps
+"${MPIEXEC}" --mca opal_cuda_support 1 -x UCX_MEMTYPE_CACHE=n -n 4 "${LMP}" -k on g 4 -in in.lammps
 ```
 
 The DeePMD loader assigns visible GPUs by node-local MPI rank. Expose at least
