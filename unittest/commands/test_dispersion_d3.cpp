@@ -186,6 +186,48 @@ TEST_P(DispersionD3Test, HybridOverlayIsAdditive)
     }
 }
 
+TEST_P(DispersionD3Test, ScaledPairEnergyHasConsistentForces)
+{
+    if (!available(GetParam()) || !Info::has_package("MOLECULE"))
+        GTEST_SKIP() << "Backend or MOLECULE package unavailable";
+    const double delta = reduced_precision(GetParam()) ? 1.0e-3 : 1.0e-5;
+    const double tolerance = reduced_precision(GetParam()) ? 5.0e-5 : 1.0e-7;
+    for (const std::string weights : {"1.0 1.0 1.0", "0.5 0.8 1.0", "0.0 0.0 1.0"}) {
+        SCOPED_TRACE(weights);
+        auto lmp = make_lammps(GetParam());
+        commands(*lmp, {"units metal", "atom_style bond", "atom_modify map array", "boundary f f f",
+                        "region box block -5 15 -5 15 -5 15",
+                        "create_box 1 box bond/types 1 extra/bond/per/atom 2 extra/special/per/atom 3",
+                        "mass 1 28.0855", "create_atoms 1 single 0 0 0",
+                        "create_atoms 1 single 2.3 0.1 0", "create_atoms 1 single 4.6 0.2 0.4",
+                        "create_atoms 1 single 2.0 2.4 0.3", "create_bonds single/bond 1 1 2",
+                        "create_bonds single/bond 1 2 3", "bond_style zero", "bond_coeff 1",
+                        "special_bonds lj " + weights, "pair_style dispersion/d3 bj pbe 8.0 8.0",
+                        "pair_coeff * * Si", "neighbor 0.5 bin",
+                        "neigh_modify every 1 delay 0 check no", "group probe id 1",
+                        "thermo_style custom step pe pxx pyy pzz pxy pxz pyz"});
+        for (int d = 0; d < 3; ++d) {
+            const auto reference = measure(*lmp);
+            auto displace = [&](double step) {
+                std::array<double, 3> move = {0.0, 0.0, 0.0};
+                move[d] = step;
+                lmp->input->one("displace_atoms probe move " + std::to_string(move[0]) + " " +
+                               std::to_string(move[1]) + " " + std::to_string(move[2]) + " units box");
+            };
+            displace(delta);
+            const double plus = measure(*lmp).energy;
+            displace(-2.0 * delta);
+            const double minus = measure(*lmp).energy;
+            displace(delta);
+            ASSERT_TRUE(std::isfinite(reference.forces[d]));
+            ASSERT_TRUE(std::isfinite(plus));
+            ASSERT_TRUE(std::isfinite(minus));
+            EXPECT_NEAR(reference.forces[d], -(plus - minus) / (2.0 * delta), tolerance)
+                << "force component " << d;
+        }
+    }
+}
+
 INSTANTIATE_TEST_SUITE_P(Backends, DispersionD3Test,
                         ::testing::Values(Backend::SERIAL, Backend::OPENMP,
                                           Backend::KOKKOS_HALF, Backend::KOKKOS_FULL));
