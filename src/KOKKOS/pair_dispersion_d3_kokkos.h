@@ -28,7 +28,7 @@ PairStyle(dispersion/d3/kk/host,PairDispersionD3Kokkos<LMPHostType>);
 #include "pair_dispersion_d3.h"
 #include "pair_kokkos.h"
 
-#include <limits>
+#include <type_traits>
 
 namespace LAMMPS_NS {
 
@@ -320,10 +320,10 @@ struct PairDispersionD3KernelA {
   void get_dC6_kokkos(KK_FLOAT &c6, KK_FLOAT &dc6i, KK_FLOAT &dc6j,
       const int &iat, const int &jat, const KK_FLOAT &cni, const KK_FLOAT &cnj) const
   {
-    KK_FLOAT c6_ref, cni_ref, cnj_ref;
-    KK_FLOAT c6mem, r_save, r;
-    KK_FLOAT expterm, term;
-    KK_FLOAT num, den, d_num_i, d_num_j, d_den_i, d_den_j;
+    double c6_ref, cni_ref, cnj_ref;
+    double c6mem, r_save, r;
+    double expterm, term;
+    double num, den, d_num_i, d_num_j, d_den_i, d_den_j;
 
     c6mem = -1.0e20;
     r_save = 1.0e20;
@@ -352,12 +352,12 @@ struct PairDispersionD3KernelA {
             c6mem = c6_ref;
           }
 
-          expterm = Kokkos::exp(static_cast<KK_FLOAT>(K3) * r);
+          expterm = Kokkos::exp(K3 * r);
 
           num += c6_ref * expterm;
           den += expterm;
 
-          expterm = expterm * static_cast<KK_FLOAT>(2.0 * K3);
+          expterm = expterm * (2.0 * K3);
 
           term = expterm * (cni - cni_ref);
           d_num_i += c6_ref * term;
@@ -370,15 +370,16 @@ struct PairDispersionD3KernelA {
       }
     }
 
-    // the reference threshold of 1.0e-99 underflows to zero in a single
-    // precision build, so use the smallest normalized value of KK_FLOAT
+    // Double-precision interpolation preserves the reference fallback in all
+    // precision modes. Its threshold keeps den*den above underflow before
+    // the closest-reference fallback is selected.
 
-    if (den > std::numeric_limits<KK_FLOAT>::min()) {
-      c6 = num / den;
-      dc6i = ((d_num_i * den) - (d_den_i * num)) / (den * den);
-      dc6j = ((d_num_j * den) - (d_den_j * num)) / (den * den);
+    if (den > 1.0e-99) {
+      c6 = static_cast<KK_FLOAT>(num / den);
+      dc6i = static_cast<KK_FLOAT>(((d_num_i * den) - (d_den_i * num)) / (den * den));
+      dc6j = static_cast<KK_FLOAT>(((d_num_j * den) - (d_den_j * num)) / (den * den));
     } else {
-      c6 = c6mem;
+      c6 = static_cast<KK_FLOAT>(c6mem);
       dc6i = 0;
       dc6j = 0;
     }

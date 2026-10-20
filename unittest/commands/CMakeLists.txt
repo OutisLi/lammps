@@ -105,6 +105,12 @@ target_link_libraries(test_set_property PRIVATE lammps GTest::GMock)
 add_test(NAME SetProperty COMMAND test_set_property)
 add_kokkos_test(NAME SetProperty COMMAND test_set_property)
 
+if(PKG_EXTRA-PAIR)
+  add_executable(test_dispersion_d3 test_dispersion_d3.cpp)
+  target_link_libraries(test_dispersion_d3 PRIVATE lammps GTest::GTest)
+  add_test(NAME DispersionD3Regression COMMAND test_dispersion_d3)
+endif()
+
 add_executable(test_pair_ldd test_pair_ldd.cpp)
 target_link_libraries(test_pair_ldd PRIVATE lammps GTest::GMock)
 add_test(NAME PairLDD COMMAND test_pair_ldd)
