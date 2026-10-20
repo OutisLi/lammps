@@ -15,8 +15,8 @@
 #ifndef LMP_MATH_SPECIAL_KOKKOS_H
 #define LMP_MATH_SPECIAL_KOKKOS_H
 
+#include <climits>
 #include <cmath>
-#include <limits>
 #include "kokkos_type.h"
 
 
@@ -244,8 +244,8 @@ namespace LAMMPS_NS::MathSpecialKokkos {
     if (x == static_cast<T>(0)) return static_cast<T>(0);
     const T rounded = Kokkos::round(n);
     if ((n == rounded) &&
-        (rounded > static_cast<T>(std::numeric_limits<int>::min())) &&
-        (rounded < static_cast<T>(std::numeric_limits<int>::max())))
+        (rounded > static_cast<T>(INT_MIN)) &&
+        (rounded < static_cast<T>(INT_MAX)))
       return powint(x, static_cast<int>(rounded));
     return Kokkos::pow(x, n);
   }
