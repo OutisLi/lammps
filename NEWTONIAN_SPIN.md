@@ -142,12 +142,12 @@ a LAMMPS rebuild.
 
 LAMMPS loads every file ending in `plugin.so` in the directories of
 `LAMMPS_PLUGIN_PATH` when it creates an instance. It opens the plugin through
-its link in `lib/deepmd_lmp`, from where the plugin does not find the
-DeePMD-kit libraries in `lib`, so that directory goes on the library path:
+its link in `lib/deepmd_lmp`, from where the RUNPATH of the plugin,
+`$ORIGIN:$ORIGIN/..`, reaches the DeePMD-kit libraries in `lib`, so the plugin
+path alone loads it:
 
 ```bash
 export LAMMPS_PLUGIN_PATH="${DEEPMD_ROOT}/lib/deepmd_lmp"
-export LD_LIBRARY_PATH="${DEEPMD_ROOT}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 "${INSTALL_ROOT}/bin/lmp" -h
 echo "plugin list" | "${INSTALL_ROOT}/bin/lmp" -log none
 ldd "${INSTALL_ROOT}/bin/lmp"
