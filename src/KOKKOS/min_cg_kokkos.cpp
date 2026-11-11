@@ -86,6 +86,14 @@ int MinCGKokkos::iterate(int maxiter)
       });
     }
   }
+  for (int m = 0; m < nextra_atom; m++) {
+    auto l_fatom = fextra_atom_kk[m];
+    auto l_gatom = gextra_atom_kk[m];
+    auto l_hatom = hextra_atom_kk[m];
+    Kokkos::parallel_for(extra_nlen[m], LAMMPS_LAMBDA(const int& i) {
+      l_hatom[i] = l_gatom[i] = static_cast<KK_FLOAT>(l_fatom[i]);
+    });
+  }
   if (nextra_global)
     for (int i = 0; i < nextra_global; i++) hextra[i] = gextra[i] = fextra[i];
 
@@ -152,6 +160,17 @@ int MinCGKokkos::iterate(int maxiter)
     }
     dot[0] = static_cast<double>(sdot.d0);
     dot[1] = static_cast<double>(sdot.d1);
+    for (int m = 0; m < nextra_atom; m++) {
+      auto l_fatom = fextra_atom_kk[m];
+      auto l_gatom = gextra_atom_kk[m];
+      s_KK_double2 sdot_atom;
+      Kokkos::parallel_reduce(extra_nlen[m], LAMMPS_LAMBDA(const int& i, s_KK_double2& sdot_atom) {
+        sdot_atom.d0 += static_cast<double>(l_fatom[i])*static_cast<double>(l_fatom[i]);
+        sdot_atom.d1 += static_cast<double>(l_fatom[i])*static_cast<double>(l_gatom[i]);
+      },sdot_atom);
+      dot[0] += sdot_atom.d0;
+      dot[1] += sdot_atom.d1;
+    }
     MPI_Allreduce(dot,dotall,2,MPI_DOUBLE,MPI_SUM,world);
     if (nextra_global)
       for (int i = 0; i < nextra_global; i++) {
@@ -203,6 +222,15 @@ int MinCGKokkos::iterate(int maxiter)
         });
       }
     }
+    for (int m = 0; m < nextra_atom; m++) {
+      auto l_fatom = fextra_atom_kk[m];
+      auto l_gatom = gextra_atom_kk[m];
+      auto l_hatom = hextra_atom_kk[m];
+      Kokkos::parallel_for(extra_nlen[m], LAMMPS_LAMBDA(const int& i) {
+        l_gatom[i] = static_cast<KK_FLOAT>(l_fatom[i]);
+        l_hatom[i] = l_gatom[i] + static_cast<KK_FLOAT>(beta)*l_hatom[i];
+      });
+    }
     if (nextra_global)
       for (int i = 0; i < nextra_global; i++) {
         gextra[i] = fextra[i];
@@ -224,6 +252,15 @@ int MinCGKokkos::iterate(int maxiter)
       },dot_0);
     }
     dot[0] = dot_0;
+    for (int m = 0; m < nextra_atom; m++) {
+      auto l_gatom = gextra_atom_kk[m];
+      auto l_hatom = hextra_atom_kk[m];
+      double dot_atom = 0.0;
+      Kokkos::parallel_reduce(extra_nlen[m], LAMMPS_LAMBDA(const int& i, double& dot_atom) {
+        dot_atom += static_cast<double>(l_gatom[i]*l_hatom[i]);
+      },dot_atom);
+      dot[0] += dot_atom;
+    }
     MPI_Allreduce(dot,dotall,1,MPI_DOUBLE,MPI_SUM,world);
     if (nextra_global)
       for (int i = 0; i < nextra_global; i++)
@@ -238,6 +275,13 @@ int MinCGKokkos::iterate(int maxiter)
       Kokkos::parallel_for(nvec, LAMMPS_LAMBDA(const int& i) {
          l_h[i] = l_g[i];
       });
+      for (int m = 0; m < nextra_atom; m++) {
+        auto l_gatom = gextra_atom_kk[m];
+        auto l_hatom = hextra_atom_kk[m];
+        Kokkos::parallel_for(extra_nlen[m], LAMMPS_LAMBDA(const int& i) {
+          l_hatom[i] = l_gatom[i];
+        });
+      }
       if (nextra_global)
         for (int i = 0; i < nextra_global; i++) hextra[i] = gextra[i];
     }

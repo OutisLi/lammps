@@ -226,6 +226,12 @@ if(PKG_RIGID)
   list(APPEND KOKKOS_PKG_SOURCES ${KOKKOS_PKG_SOURCES_DIR}/fix_rigid_nh_small_kokkos.cpp)
 endif()
 
+# the same holds for fix nh/tspin/kk, the base class of the KOKKOS variants of
+# fix nvt/tspin, npt/tspin and nph/tspin
+if(PKG_SPIN)
+  list(APPEND KOKKOS_PKG_SOURCES ${KOKKOS_PKG_SOURCES_DIR}/fix_nh_tspin_kokkos.cpp)
+endif()
+
 if(PKG_KSPACE)
   list(APPEND KOKKOS_PKG_SOURCES ${KOKKOS_PKG_SOURCES_DIR}/fft3d_kokkos.cpp
                                  ${KOKKOS_PKG_SOURCES_DIR}/grid3d_kokkos.cpp

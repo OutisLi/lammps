@@ -36,6 +36,7 @@ class FixNH : public Fix {
   std::string get_thermo_colname(int) override;
   void write_restart(FILE *) override;
   virtual int pack_restart_data(double *);    // pack restart data
+  int unpack_restart_data(const double *);    // unpack it, return the count read
   void restart(char *) override;
   int modify_param(int, char **) override;
   void reset_target(double) override;

@@ -407,14 +407,15 @@ FixNH::FixNH(LAMMPS *lmp, int narg, char **arg) :
     } else if (strcmp(arg[iarg], "ext") == 0) {
       iarg += 2;
 
-      // keywords spinmass, lattice and spin are parsed in the tspin styles
+      // keywords spinmass, lattice and spin are parsed in the tspin styles,
+      // including their accelerated variants such as nvt/tspin/kk
       // the style check keeps them from being silently accepted elsewhere
 
-    } else if ((strcmp(arg[iarg], "spinmass") == 0) && utils::strmatch(style, "/tspin$")) {
+    } else if ((strcmp(arg[iarg], "spinmass") == 0) && utils::strmatch(style, "/tspin")) {
       iarg += 2;
-    } else if ((strcmp(arg[iarg], "lattice") == 0) && utils::strmatch(style, "/tspin$")) {
+    } else if ((strcmp(arg[iarg], "lattice") == 0) && utils::strmatch(style, "/tspin")) {
       iarg += 2;
-    } else if ((strcmp(arg[iarg], "spin") == 0) && utils::strmatch(style, "/tspin$")) {
+    } else if ((strcmp(arg[iarg], "spin") == 0) && utils::strmatch(style, "/tspin")) {
       iarg += 2;
 
       // keywords psllod, peculiar, kick and integrator are parsed in fix/nvt/sllod
@@ -1479,8 +1480,16 @@ int FixNH::pack_restart_data(double *list)
 
 void FixNH::restart(char *buf)
 {
+  unpack_restart_data((double *) buf);
+}
+
+/* ----------------------------------------------------------------------
+   use the state written by pack_restart_data(), return the number of values
+------------------------------------------------------------------------- */
+
+int FixNH::unpack_restart_data(const double *list)
+{
   int n = 0;
-  auto *list = (double *) buf;
   int flag = static_cast<int>(list[n++]);
   if (flag) {
     int m = static_cast<int>(list[n++]);
@@ -1531,6 +1540,7 @@ void FixNH::restart(char *buf)
       vol_start = list[n++];
     }
   }
+  return n;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1644,7 +1654,10 @@ double FixNH::compute_scalar()
     }
 
     // extra contributions from thermostat chain for barostat
+    // the isotropic barostat is a single degree of freedom, as in
+    // nhc_press_integrate()
 
+    if (pstyle == ISO) lkt_press = kt;
     if (mpchain) {
       energy += lkt_press * etap[0] + 0.5*etap_mass[0]*etap_dot[0]*etap_dot[0];
       for (ich = 1; ich < mpchain; ich++)

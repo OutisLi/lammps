@@ -821,6 +821,40 @@ TEST_F(TSpinTest, LatticeAndSpinSwitches)
                  command("fix 3 all nvt/tspin temp 300 300 0.1 lattice frozen spin frozen"););
 }
 
+// min_style spin/cg/r3 with fix spring/tspin as the only magnetic force
+// relaxes every spin magnitude to S0 and keeps its direction; a spin of
+// zero magnitude stays zero
+
+TEST_F(TSpinTest, MinSpinCGR3RelaxesModulus)
+{
+    if (!info->has_style("minimize", "spin/cg/r3")) GTEST_SKIP() << "min spin/cg/r3 missing";
+
+    build(true);
+    BEGIN_HIDE_OUTPUT();
+    command("set group warm spin/atom/random 47 1.5");
+    command("fix_modify pin energy yes");
+    END_HIDE_OUTPUT();
+
+    const int nlocal = lmp->atom->nlocal;
+    std::vector<std::array<double, 3>> direction(nlocal);
+    for (int i = 0; i < nlocal; i++)
+        for (int k = 0; k < 3; k++) direction[i][k] = lmp->atom->sp[i][k];
+
+    BEGIN_HIDE_OUTPUT();
+    command("min_style spin/cg/r3");
+    command("minimize 0.0 1.0e-10 500 1000");
+    END_HIDE_OUTPUT();
+
+    for (int i = 0; i < nlocal; i++) {
+        if (lmp->atom->tag[i] <= 4) {
+            EXPECT_DOUBLE_EQ(lmp->atom->sp[i][3], 0.0);
+            continue;
+        }
+        EXPECT_NEAR(lmp->atom->sp[i][3], 2.2, 1.0e-10);
+        for (int k = 0; k < 3; k++) EXPECT_NEAR(lmp->atom->sp[i][k], direction[i][k], 1.0e-12);
+    }
+}
+
 // rRESPA has no per-level magnetic force and must be refused
 
 TEST_F(TSpinTest, RespaIsRejected)

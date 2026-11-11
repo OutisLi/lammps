@@ -389,6 +389,10 @@
 
 /atom_vec_spin.cpp
 /atom_vec_spin.h
+/compute_msd_spin.cpp
+/compute_msd_spin.h
+/compute_msd_spin_modulus.cpp
+/compute_msd_spin_modulus.h
 /compute_spin.cpp
 /compute_spin.h
 /compute_temp_tspin.cpp
@@ -401,6 +405,7 @@
 /fix_neb_spin.h
 /fix_nh_tspin.cpp
 /fix_nh_tspin.h
+/fix_nh_tspin_impl.h
 /fix_nve_spin.cpp
 /fix_nve_spin.h
 /fix_nve_tspin.cpp
@@ -421,6 +426,8 @@
 /min_spin.h
 /min_spin_cg.cpp
 /min_spin_cg.h
+/min_spin_cg_r3.cpp
+/min_spin_cg_r3.h
 /min_spin_lbfgs.cpp
 /min_spin_lbfgs.h
 /neb_spin.cpp
@@ -442,6 +449,8 @@
 /pair_spin_neel.cpp
 /pair_spin_neel.h
 /tspin.h
+/tspin_nh.cpp
+/tspin_nh.h
 /velocity_tspin.cpp
 /velocity_tspin.h
 

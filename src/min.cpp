@@ -317,13 +317,15 @@ void Min::setup(int flag)
   modify->setup_pre_reverse(eflag,vflag);
   if (force->newton) comm->reverse_comm();
 
-  // update per-atom minimization variables stored by pair styles
+  modify->setup(vflag);
+
+  // update per-atom minimization variables and the forces on them, after
+  // every contribution to those forces, the ones of fixes included
 
   if (nextra_atom)
     for (int m = 0; m < nextra_atom; m++)
       requestor[m]->min_xf_get(m);
 
-  modify->setup(vflag);
   output->setup(flag);
   update->setupflag = 0;
 
@@ -399,13 +401,15 @@ void Min::setup_minimal(int flag)
   modify->setup_pre_reverse(eflag,vflag);
   if (force->newton) comm->reverse_comm();
 
-  // update per-atom minimization variables stored by pair styles
+  modify->setup(vflag);
+
+  // update per-atom minimization variables and the forces on them, after
+  // every contribution to those forces, the ones of fixes included
 
   if (nextra_atom)
     for (int m = 0; m < nextra_atom; m++)
       requestor[m]->min_xf_get(m);
 
-  modify->setup(vflag);
   update->setupflag = 0;
 
   // stats for Finish to print
@@ -578,12 +582,6 @@ double Min::energy_force(int resetflag)
     timer->stamp(Timer::COMM);
   }
 
-  // update per-atom minimization variables stored by pair styles
-
-  if (nextra_atom)
-    for (int m = 0; m < nextra_atom; m++)
-      requestor[m]->min_xf_get(m);
-
   // fixes that affect minimization
 
   if (modify->has_fixes(FixConst::MIN_POST_FORCE)) {
@@ -591,6 +589,13 @@ double Min::energy_force(int resetflag)
      modify->min_post_force(vflag);
      timer->stamp(Timer::MODIFY);
   }
+
+  // update per-atom minimization variables and the forces on them, after
+  // every contribution to those forces, the ones of fixes included
+
+  if (nextra_atom)
+    for (int m = 0; m < nextra_atom; m++)
+      requestor[m]->min_xf_get(m);
 
   // compute potential energy of system
   // normalize if thermo PE does
@@ -634,13 +639,13 @@ void Min::force_clear()
 }
 
 /* ----------------------------------------------------------------------
-   pair style makes request to add a per-atom variables to minimization
-   requestor stores callback to pair class to invoke during min
+   pair or min style makes request to add a per-atom variables to minimization
+   requestor stores the owner whose callbacks are invoked during min
      to get current variable and forces on it and to update the variable
-   return flag that pair can use if it registers multiple variables
+   return flag that the owner can use if it registers multiple variables
 ------------------------------------------------------------------------- */
 
-int Min::request(Pair *pair, int peratom, double maxvalue)
+int Min::request(MinExtraDOF *owner, int peratom, double maxvalue)
 {
   int n = nextra_atom + 1;
   xextra_atom = (double **) memory->srealloc(xextra_atom,n*sizeof(double *),
@@ -650,10 +655,10 @@ int Min::request(Pair *pair, int peratom, double maxvalue)
   memory->grow(extra_peratom,n,"min:extra_peratom");
   memory->grow(extra_nlen,n,"min:extra_nlen");
   memory->grow(extra_max,n,"min:extra_max");
-  requestor = (Pair **) memory->srealloc(requestor,n*sizeof(Pair *),
-                                         "min:requestor");
+  requestor = (MinExtraDOF **) memory->srealloc(requestor,n*sizeof(MinExtraDOF *),
+                                                "min:requestor");
 
-  requestor[nextra_atom] = pair;
+  requestor[nextra_atom] = owner;
   extra_peratom[nextra_atom] = peratom;
   extra_max[nextra_atom] = maxvalue;
   nextra_atom++;

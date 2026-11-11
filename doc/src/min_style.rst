@@ -34,6 +34,13 @@ Accelerator Variant: *fire/kk*
 :doc:`min_style spin/lbfgs <min_spin>` command
 ==============================================
 
+min_style spin/cg/r3 command
+============================
+
+.. versionadded:: TBD
+
+Accelerator Variant: *spin/cg/r3/kk*
+
 Syntax
 """"""
 
@@ -41,7 +48,7 @@ Syntax
 
    min_style style
 
-* style = *cg* or *hftn* or *sd* or *quickmin* or *fire* or *spin* or *spin/cg* or *spin/lbfgs*
+* style = *cg* or *hftn* or *sd* or *quickmin* or *fire* or *spin* or *spin/cg* or *spin/lbfgs* or *spin/cg/r3*
 
   .. parsed-literal::
 
@@ -57,6 +64,7 @@ Examples
    min_style cg
    min_style fire
    min_style spin
+   min_style spin/cg/r3
 
 Description
 """""""""""
@@ -117,6 +125,29 @@ to minimize spin configurations.
 See the :doc:`min/spin <min_spin>` page for more information about
 the *spin*, *spin/cg* and *spin/lbfgs* styles.
 
+Style *spin/cg/r3* applies the Polak-Ribiere conjugate gradient method
+of style *cg* to the atom coordinates and the full spin vectors
+:math:`\vec{S}_i` together, so that the spin magnitudes relax with their
+directions and the positions.  The force on :math:`\vec{S}_i` is
+:math:`-\partial U/\partial\vec{S}_i`, which the magnetic interaction
+supplies in the encoding of the :doc:`TSPIN integrators <fix_nve_tspin>`;
+pair styles of the SPIN package that do not provide this full gradient
+are rejected.  The line search moves the spin vectors with the
+coordinates.  The *dmax* setting of :doc:`min_modify <min_modify>`
+bounds the change of every spin vector component per iteration as it
+bounds that of every coordinate, with its value taken in the units of
+the spin magnitude.  The force norm of the stopping criterion combines
+the forces on the coordinates and on the spin vectors, the latter in
+energy per unit of spin magnitude (eV per Bohr magneton in metal units),
+so the force tolerance of the :doc:`minimize <minimize>` command applies
+to both.  A spin of zero magnitude stays zero.  The style supports
+:doc:`fix box/relax <fix_box_relax>` and the spin modulus restraint of
+:doc:`fix spring/tspin <fix_spring_tspin>`.  With fix box/relax, a single
+line search moves the box, the coordinates and the spin vectors with one
+step length, which the *vmax* setting of fix box/relax can limit; relaxing
+the box with style *cg* and the spins with style *spin/cg/r3* in turn
+then converges faster.
+
 Either the *quickmin* or the *fire* styles are useful in the context of
 nudged elastic band (NEB) calculations via the :doc:`neb <neb>` command.
 
@@ -135,10 +166,11 @@ the :doc:`neb/spin <neb_spin>` command.
 
 .. note::
 
-   The *quickmin*, *fire*, *hftn*, *cg/kk*, *quickmin/kk*, and *sd/kk*
-   styles do not yet support the use of the :doc:`fix box/relax
-   <fix_box_relax>` command or minimizations involving the electron
-   radius in :doc:`eFF <pair_eff>` models.
+   The *quickmin*, *fire*, *hftn*, *quickmin/kk*, and *fire/kk* styles
+   do not yet support the use of the :doc:`fix box/relax
+   <fix_box_relax>` command.  These styles and the *cg/kk*, *sd/kk*, and
+   *spin/cg/r3/kk* styles do not yet support minimizations involving the
+   electron radius in :doc:`eFF <pair_eff>` models.
 
 ----------
 
@@ -149,9 +181,13 @@ the :doc:`neb/spin <neb_spin>` command.
 Restrictions
 """"""""""""
 
-The *spin*, *spin/cg*, and *spin/lbfgps* styles are part of the SPIN
-package.  They are only enabled if LAMMPS was built with that package.
-See the :doc:`Build package <Build_package>` page for more info.
+The *spin*, *spin/cg*, *spin/lbfgs*, and *spin/cg/r3* styles are part of
+the SPIN package.  They are only enabled if LAMMPS was built with that
+package.  See the :doc:`Build package <Build_package>` page for more info.
+
+The *spin/cg/r3* style requires :doc:`atom_style spin <atom_style>`.
+Compatibility of magnetic fixes such as :doc:`fix precession/spin
+<fix_precession_spin>` is not checked automatically.
 
 Related commands
 """"""""""""""""

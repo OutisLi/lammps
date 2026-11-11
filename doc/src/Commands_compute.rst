@@ -91,6 +91,8 @@ OPT.
    * :doc:`msd <compute_msd>`
    * :doc:`msd/chunk <compute_msd_chunk>`
    * :doc:`msd/nongauss <compute_msd_nongauss>`
+   * :doc:`msd/spin <compute_msd_spin>`
+   * :doc:`msd/spin/mod <compute_msd_spin>`
    * :doc:`nbond/atom <compute_nbond_atom>`
    * :doc:`omega/chunk <compute_omega_chunk>`
    * :doc:`orientorder/atom (ko) <compute_orientorder_atom>`

@@ -95,6 +95,19 @@ void MinLineSearchKokkos::setup_style()
     gextra = new double[nextra_global];
     hextra = new double[nextra_global];
   }
+
+  // memory for x0,g,h for extra per-atom dof
+
+  for (int m = 0; m < nextra_atom; m++) {
+    fix_minimize_kk->add_vector_kokkos();
+    fix_minimize_kk->add_vector_kokkos();
+    fix_minimize_kk->add_vector_kokkos();
+  }
+  xextra_atom_kk.resize(nextra_atom);
+  fextra_atom_kk.resize(nextra_atom);
+  x0extra_atom_kk.resize(nextra_atom);
+  gextra_atom_kk.resize(nextra_atom);
+  hextra_atom_kk.resize(nextra_atom);
 }
 
 /* ----------------------------------------------------------------------
@@ -116,6 +129,18 @@ void MinLineSearchKokkos::reset_vectors()
   x0 = fix_minimize_kk->request_vector_kokkos(0);
   g = fix_minimize_kk->request_vector_kokkos(1);
   h = fix_minimize_kk->request_vector_kokkos(2);
+
+  // extra per-atom dof
+
+  int n = 3;
+  for (int m = 0; m < nextra_atom; m++) {
+    extra_nlen[m] = extra_peratom[m] * atom->nlocal;
+    dynamic_cast<MinExtraDOFKokkos *>(requestor[m])->
+      min_xf_views(m,xextra_atom_kk[m],fextra_atom_kk[m]);
+    x0extra_atom_kk[m] = fix_minimize_kk->request_vector_kokkos(n++);
+    gextra_atom_kk[m] = fix_minimize_kk->request_vector_kokkos(n++);
+    hextra_atom_kk[m] = fix_minimize_kk->request_vector_kokkos(n++);
+  }
 }
 
 /* ----------------------------------------------------------------------
@@ -209,6 +234,15 @@ int MinLineSearchKokkos::linemin_quadratic(double eoriginal, double &alpha)
       },fdothme);
     }
   }
+  for (int m = 0; m < nextra_atom; m++) {
+    auto l_fatom = fextra_atom_kk[m];
+    auto l_hatom = hextra_atom_kk[m];
+    double fdoth_atom = 0.0;
+    Kokkos::parallel_reduce(extra_nlen[m], LAMMPS_LAMBDA(const int& i, double& fdoth_atom) {
+      fdoth_atom += static_cast<double>(l_fatom[i]*static_cast<KK_ACC_FLOAT>(l_hatom[i]));
+    },fdoth_atom);
+    fdothme += fdoth_atom;
+  }
   MPI_Allreduce(&fdothme,&fdothall,1,MPI_DOUBLE,MPI_SUM,world);
   if (nextra_global)
     for (int i = 0; i < nextra_global; i++) fdothall += fextra[i]*hextra[i];
@@ -237,6 +271,17 @@ int MinLineSearchKokkos::linemin_quadratic(double eoriginal, double &alpha)
   }
   MPI_Allreduce(&hme,&hmaxall,1,MPI_DOUBLE,MPI_MAX,world);
   alphamax = MIN(ALPHA_MAX,dmax/hmaxall);
+  for (int m = 0; m < nextra_atom; m++) {
+    auto l_hatom = hextra_atom_kk[m];
+    double hmax;
+    hme = 0.0;
+    Kokkos::parallel_reduce(extra_nlen[m], LAMMPS_LAMBDA(const int& i, double& hme) {
+      hme = MAX(hme,fabs(static_cast<double>(l_hatom[i])));
+    },Kokkos::Max<double>(hme));
+    MPI_Allreduce(&hme,&hmax,1,MPI_DOUBLE,MPI_MAX,world);
+    alphamax = MIN(alphamax,extra_max[m]/hmax);
+    hmaxall = MAX(hmaxall,hmax);
+  }
   if (nextra_global) {
     double alpha_extra = modify->max_alpha(hextra);
     alphamax = MIN(alphamax,alpha_extra);
@@ -263,6 +308,13 @@ int MinLineSearchKokkos::linemin_quadratic(double eoriginal, double &alpha)
     fix_minimize_kk->store_box();
     Kokkos::parallel_for(nvec, LAMMPS_LAMBDA(const int& i) {
       l_x0[i] = l_xvec[i];
+    });
+  }
+  for (int m = 0; m < nextra_atom; m++) {
+    auto l_xatom = xextra_atom_kk[m];
+    auto l_x0atom = x0extra_atom_kk[m];
+    Kokkos::parallel_for(extra_nlen[m], LAMMPS_LAMBDA(const int& i) {
+      l_x0atom[i] = l_xatom[i];
     });
   }
   if (nextra_global) modify->min_store();
@@ -322,6 +374,15 @@ int MinLineSearchKokkos::linemin_quadratic(double eoriginal, double &alpha)
       }
     }
     dot = static_cast<double>(sdot.d1);
+    for (int m = 0; m < nextra_atom; m++) {
+      auto l_fatom = fextra_atom_kk[m];
+      auto l_hatom = hextra_atom_kk[m];
+      double fdoth_atom = 0.0;
+      Kokkos::parallel_reduce(extra_nlen[m], LAMMPS_LAMBDA(const int& i, double& fdoth_atom) {
+        fdoth_atom += static_cast<double>(static_cast<KK_FLOAT>(l_fatom[i])*l_hatom[i]);
+      },fdoth_atom);
+      dot += fdoth_atom;
+    }
 
     MPI_Allreduce(&dot,&dotall,1,MPI_DOUBLE,MPI_SUM,world);
     if (nextra_global) {
@@ -410,6 +471,14 @@ double MinLineSearchKokkos::alpha_step(double alpha, int resetflag)
       l_xvec[i] = l_x0[i];
     });
   }
+  for (int m = 0; m < nextra_atom; m++) {
+    auto l_xatom = xextra_atom_kk[m];
+    auto l_x0atom = x0extra_atom_kk[m];
+    Kokkos::parallel_for(extra_nlen[m], LAMMPS_LAMBDA(const int& i) {
+      l_xatom[i] = l_x0atom[i];
+    });
+    requestor[m]->min_x_set(m);
+  }
 
   atomKK->modified(Device,X_MASK);
 
@@ -428,6 +497,15 @@ double MinLineSearchKokkos::alpha_step(double alpha, int resetflag)
     Kokkos::parallel_for(nvec, LAMMPS_LAMBDA(const int& i) {
       l_xvec[i] += static_cast<KK_FLOAT>(alpha)*l_h[i];
     });
+
+    for (int m = 0; m < nextra_atom; m++) {
+      auto l_xatom = xextra_atom_kk[m];
+      auto l_hatom = hextra_atom_kk[m];
+      Kokkos::parallel_for(extra_nlen[m], LAMMPS_LAMBDA(const int& i) {
+        l_xatom[i] += static_cast<KK_FLOAT>(alpha)*l_hatom[i];
+      });
+      requestor[m]->min_x_set(m);
+    }
   }
 
   atomKK->modified(Device,X_MASK);

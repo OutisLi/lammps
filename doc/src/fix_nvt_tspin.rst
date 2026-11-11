@@ -1,15 +1,24 @@
 .. index:: fix nvt/tspin
+.. index:: fix nvt/tspin/kk
 .. index:: fix npt/tspin
+.. index:: fix npt/tspin/kk
 .. index:: fix nph/tspin
+.. index:: fix nph/tspin/kk
 
 fix nvt/tspin command
 =====================
 
+Accelerator Variants: *nvt/tspin/kk*
+
 fix npt/tspin command
 =====================
 
+Accelerator Variants: *npt/tspin/kk*
+
 fix nph/tspin command
 =====================
+
+Accelerator Variants: *nph/tspin/kk*
 
 Syntax
 """"""
@@ -72,6 +81,10 @@ magnetic-force requirements described for :doc:`fix nve/tspin
 
 ----------
 
+.. include:: accel_styles.rst
+
+----------
+
 Restart, fix_modify, output, run start/stop, minimize info
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
@@ -104,8 +117,8 @@ used with *lattice frozen*.
 With SPIN pair styles, these fixes cannot be combined with
 :doc:`fix nve/spin <fix_nve_spin>`, even on disjoint groups.
 
-There is no KOKKOS version.  Magnetic interactions must satisfy the
-full-force requirement described for :doc:`fix nve/tspin <fix_nve_tspin>`.
+Magnetic interactions must satisfy the full-force requirement described
+for :doc:`fix nve/tspin <fix_nve_tspin>`.
 
 Related commands
 """"""""""""""""

@@ -1,7 +1,10 @@
 .. index:: fix nve/tspin
+.. index:: fix nve/tspin/kk
 
 fix nve/tspin command
 =====================
+
+Accelerator Variants: *nve/tspin/kk*
 
 Syntax
 """"""
@@ -88,6 +91,10 @@ monitor the conserved energy in NVE simulations.
 
 ----------
 
+.. include:: accel_styles.rst
+
+----------
+
 Restart, fix_modify, output, run start/stop, minimize info
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
@@ -106,8 +113,7 @@ Restrictions
 This fix requires :doc:`atom_style spin <atom_style>` and the SPIN
 package; see :doc:`Build package <Build_package>`.
 :doc:`Dynamic groups <group>` and :doc:`run_style respa <run_style>`
-are not supported.  There is no KOKKOS version, and use inside a KOKKOS
-build is not supported.
+are not supported.
 
 Do not combine this fix with :doc:`fix nve/spin <fix_nve_spin>` on the
 same atoms.  With SPIN pair styles, this restriction also applies to

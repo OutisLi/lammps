@@ -1,7 +1,10 @@
 .. index:: fix langevin/tspin
+.. index:: fix langevin/tspin/kk
 
 fix langevin/tspin command
 ==========================
+
+Accelerator Variants: *langevin/tspin/kk*
 
 Syntax
 """"""
@@ -80,6 +83,10 @@ conserved.  This fix does not tally that exchange.
 
 ----------
 
+.. include:: accel_styles.rst
+
+----------
+
 Restart, fix_modify, output, run start/stop, minimize info
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
@@ -87,7 +94,9 @@ The random-number generator state is not written to :doc:`binary
 restart files <restart>`.  Restarts preserve statistical sampling but
 do not reproduce the same trajectory.  Each MPI rank uses a separate
 random-number stream, so changing the number of ranks changes the
-trajectory.
+trajectory.  The *langevin/tspin/kk* variant draws its random numbers
+from a generator of its own and therefore samples the same bath along a
+different trajectory than *langevin/tspin*.
 
 No :doc:`fix_modify <fix_modify>` options or :doc:`output quantities
 <Howto_output>` are supported.

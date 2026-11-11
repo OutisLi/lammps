@@ -42,7 +42,7 @@ class FixSpringTSpin : public Fix {
   void min_post_force(int) override;
   double compute_scalar() override;
 
- private:
+ protected:
   double k, s0, espring;
   int ilevel_respa;
   int index_sm;

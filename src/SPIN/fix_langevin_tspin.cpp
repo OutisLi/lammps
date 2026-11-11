@@ -92,6 +92,10 @@ FixLangevinTSpin::FixLangevinTSpin(LAMMPS *lmp, int narg, char **arg) :
 
 FixLangevinTSpin::~FixLangevinTSpin()
 {
+  // a KOKKOS variant destroys its device copies too, which share random
+
+  if (copymode) return;
+
   delete random;
 }
 

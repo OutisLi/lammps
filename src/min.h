@@ -14,6 +14,7 @@
 #ifndef LMP_MIN_H
 #define LMP_MIN_H
 
+#include "min_extra_dof.h"    // IWYU pragma: export
 #include "pointers.h"    // IWYU pragma: export
 
 namespace LAMMPS_NS {
@@ -37,7 +38,7 @@ class Min : protected Pointers {
   virtual void run(int);
   virtual void force_clear();
   void cleanup();
-  int request(class Pair *, int, double);
+  int request(MinExtraDOF *, int, double);
   virtual double memory_usage() { return 0; }
   void modify_params(int, char **);
   virtual int modify_param(int, char **) { return 0; }
@@ -135,7 +136,7 @@ class Min : protected Pointers {
   int *extra_peratom;        // # of values in variable, e.g. 3 in x
   int *extra_nlen;           // total local length of variable, e.g 3*nlocal
   double *extra_max;         // max allowed change per iter for atom's var
-  class Pair **requestor;    // Pair that stores/manipulates the variable
+  MinExtraDOF **requestor;   // owner that stores/manipulates the variable
 
   int kokkosable;    // 1 if this min style supports Kokkos
 

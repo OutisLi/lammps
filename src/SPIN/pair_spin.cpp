@@ -27,7 +27,6 @@
 #include "atom.h"
 #include "comm.h"
 #include "error.h"
-#include "fix_nh_tspin.h"
 #include "fix_nve_spin.h"
 #include "fix_nve_tspin.h"
 #include "force.h"
@@ -36,6 +35,7 @@
 #include "modify.h"
 #include "neighbor.h"
 #include "pair.h"
+#include "tspin_nh.h"
 #include "update.h"
 
 #include <cstring>
@@ -92,12 +92,19 @@ void PairSpin::init_style()
                "when using SPIN pair styles");
 
   // the tspin integrators need the derivative of the energy with respect to
-  // the full spin vector, magnitude as well as direction
+  // the full spin vector, magnitude as well as direction, and so does the
+  // minimizer that relaxes the spin vectors in R^3
 
   if ((ntspin > 0) && !full_spin_gradient)
     error->all(FLERR, Error::NOLASTLINE,
                "Pair style {} does not provide the derivative of the energy with respect "
                "to the full spin vector and cannot be used with the tspin integrators",
+               force->pair_style);
+  if ((update->whichflag == 2) && utils::strmatch(update->minimize_style, "^spin/cg/r3") &&
+      !full_spin_gradient)
+    error->all(FLERR, Error::NOLASTLINE,
+               "Pair style {} does not provide the derivative of the energy with respect "
+               "to the full spin vector and cannot be used with min_style spin/cg/r3",
                force->pair_style);
 
   // checking if a spin integrator or neb/spin is a listed fix
@@ -126,11 +133,11 @@ void PairSpin::init_style()
     if (!tspin_nve.empty())
       lattice_flag = (dynamic_cast<FixNVETSpin *>(tspin_nve.front()))->lattice_flag;
     else if (!tspin_nvt.empty())
-      lattice_flag = (dynamic_cast<FixNHTSpin *>(tspin_nvt.front()))->lattice_flag;
+      lattice_flag = (dynamic_cast<TSpinNH *>(tspin_nvt.front()))->lattice_flag;
     else if (!tspin_npt.empty())
-      lattice_flag = (dynamic_cast<FixNHTSpin *>(tspin_npt.front()))->lattice_flag;
+      lattice_flag = (dynamic_cast<TSpinNH *>(tspin_npt.front()))->lattice_flag;
     else
-      lattice_flag = (dynamic_cast<FixNHTSpin *>(tspin_nph.front()))->lattice_flag;
+      lattice_flag = (dynamic_cast<TSpinNH *>(tspin_nph.front()))->lattice_flag;
   } else if (ntspin > 1) {
     error->warning(FLERR, "Using multiple instances of tspin integrators");
   }

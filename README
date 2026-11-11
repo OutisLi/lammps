@@ -1,4 +1,11 @@
-This is the LAMMPS software package.
+This is a fork of LAMMPS for running DeePMD-kit models.
+
+DPA4SPIN.md describes how it differs from the official version: KOKKOS
+variants of the inertial spin dynamics (TSPIN) styles of the SPIN package,
+the minimizer min_style spin/cg/r3 and its KOKKOS variant, the computes
+msd/spin and msd/spin/mod, changes to the KOKKOS package, and the build with
+the DeePMD-kit plugin. Inputs of the official version run unchanged, and the
+official documentation linked below applies to them.
 
 LAMMPS stands for Large-scale Atomic/Molecular Massively Parallel
 Simulator.
@@ -24,6 +31,7 @@ The LAMMPS distribution source tarballs include the files and directories:
 
 README                     this file
 LICENSE                    the GNU General Public License (GPLv2)
+DPA4SPIN.md                differences of this fork from the official LAMMPS
 bench                      benchmark inputs
 cmake                      CMake build files
 doc                        documentation

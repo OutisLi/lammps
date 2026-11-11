@@ -56,6 +56,9 @@ The *cg* and *sd* minimization styles have an outer iteration and an
 inner iteration which is steps along a one-dimensional line search in
 a particular search direction.  The *dmax* parameter is how far any
 atom can move in a single line search in any dimension (x, y, or z).
+For the *spin/cg/r3* style, it also bounds the change of each spin
+vector component in a single line search, in the units of the spin
+magnitude.
 For the *quickmin* and *fire* minimization styles, the *dmax* setting
 is how far any atom can move in a single iteration (timestep).  Thus a
 value of 0.1 in real :doc:`units <units>` means no atom will move
@@ -63,9 +66,10 @@ further than 0.1 Angstroms in a single outer iteration.  This prevents
 highly overlapped atoms from being moved long distances (e.g. through
 another atom) due to large forces.
 
-The choice of line search algorithm for the *cg* and *sd* minimization
-styles can be selected via the *line* keyword.  The default
-*quadratic* line search algorithm starts out using the robust
+The choice of line search algorithm for the *cg*, *sd*, and
+*spin/cg/r3* minimization styles can be selected via the *line* keyword;
+their KOKKOS variants support only the *quadratic* line search.  The
+default *quadratic* line search algorithm starts out using the robust
 backtracking method described below. However, once the system gets
 close to a local minimum and the linesearch steps get small, so that
 the energy is approximately quadratic in the step length, it uses the
@@ -85,8 +89,8 @@ even if atoms could move in the gradient direction to reduce forces
 further.
 
 The choice of a norm can be modified for the min styles *cg*, *sd*,
-*quickmin*, *fire*, *spin*, *spin/cg*, and *spin/lbfgs* using the
-*norm* keyword.  The default *two* norm computes the 2-norm
+*quickmin*, *fire*, *spin*, *spin/cg*, *spin/lbfgs*, and *spin/cg/r3*
+using the *norm* keyword.  The default *two* norm computes the 2-norm
 (Euclidean length) of the global force vector:
 
 .. math::

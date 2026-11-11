@@ -18,7 +18,23 @@
 #include "min.h"
 #include "kokkos_type.h"
 
+#include <vector>
+
 namespace LAMMPS_NS {
+
+// Owner of an extra per-atom minimization variable that keeps it, with three
+// values per atom, and the force on it in device views, such as min style
+// spin/cg/r3/kk.  The KOKKOS minimizers move it on the device together with
+// the atom coordinates.
+
+class MinExtraDOFKokkos : public MinExtraDOF {
+ public:
+  // point to the variable and to the force on it, after atoms migrated
+  virtual void min_xf_views(int, DAT::t_kkfloat_1d &, DAT::t_kkacc_1d &) = 0;
+
+ protected:
+  ~MinExtraDOFKokkos() = default;
+};
 
 class MinKokkos : public Min {
  public:
@@ -48,6 +64,9 @@ class MinKokkos : public Min {
 
   DAT::t_kkfloat_1d xvec;            // variables for atomic dof, as 1d vector
   DAT::t_kkacc_1d fvec;            // force vector for atomic dof, as 1d vector
+
+  std::vector<DAT::t_kkfloat_1d> xextra_atom_kk;   // extra per-atom dof
+  std::vector<DAT::t_kkacc_1d> fextra_atom_kk;     // forces on them
 
   double energy_force(int) override;
   void force_clear() override;

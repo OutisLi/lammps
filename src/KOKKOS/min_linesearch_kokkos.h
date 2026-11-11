@@ -61,6 +61,10 @@ class MinLineSearchKokkos : public MinKokkos {
   double *gextra;             // g,h for extra global dof, x0 is stored by fix
   double *hextra;
 
+  std::vector<DAT::t_kkfloat_1d> x0extra_atom_kk;   // x0,g,h for extra per-atom dof
+  std::vector<DAT::t_kkfloat_1d> gextra_atom_kk;
+  std::vector<DAT::t_kkfloat_1d> hextra_atom_kk;
+
   typedef int (MinLineSearchKokkos::*FnPtr)(double, double &);
   FnPtr linemin;
   int linemin_quadratic(double, double &);

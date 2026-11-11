@@ -3052,6 +3052,9 @@ supported.
 * :doc:`fix spring/tspin <fix_spring_tspin>`
 * :doc:`compute spin <compute_spin>`
 * :doc:`compute temp/tspin <compute_temp_tspin>`
+* :doc:`compute msd/spin <compute_msd_spin>`
+* :doc:`compute msd/spin/mod <compute_msd_spin>`
+* :doc:`min_style spin/cg/r3 <min_style>`
 * :doc:`velocity/tspin <velocity_tspin>`
 * :doc:`neb/spin <neb_spin>`
 * ``examples/SPIN``

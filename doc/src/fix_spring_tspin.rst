@@ -1,7 +1,10 @@
 .. index:: fix spring/tspin
+.. index:: fix spring/tspin/kk
 
 fix spring/tspin command
 ========================
+
+Accelerator Variants: *spring/tspin/kk*
 
 Syntax
 """"""
@@ -46,6 +49,10 @@ which produces the radial magnetic force
 The spring force is purely radial and produces no direct spin torque.
 This fix is useful with :doc:`TSPIN integrators <fix_nve_tspin>` when
 the magnetic potential does not provide a longitudinal restoring force.
+
+----------
+
+.. include:: accel_styles.rst
 
 ----------
 

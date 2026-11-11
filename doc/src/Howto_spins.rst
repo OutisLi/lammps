@@ -81,6 +81,10 @@ The following commands support TSPIN simulations:
   velocities and can assign spin masses.
 * :doc:`compute temp/tspin <compute_temp_tspin>` reports the auxiliary
   spin temperature and kinetic energy.
+* :doc:`compute msd/spin and msd/spin/mod <compute_msd_spin>` report the
+  mean-squared displacements of the spin vectors and of their magnitudes.
+* :doc:`min_style spin/cg/r3 <min_style>` relaxes the atom positions and
+  the full spin vectors together.
 
 The following fixed-lattice example assumes that the simulation box,
 atoms, masses, and initial spins have been defined.  It demonstrates

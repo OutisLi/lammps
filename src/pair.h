@@ -14,11 +14,12 @@
 #ifndef LMP_PAIR_H
 #define LMP_PAIR_H
 
+#include "min_extra_dof.h"
 #include "pointers.h"    // IWYU pragma: export
 
 namespace LAMMPS_NS {
 
-class Pair : protected Pointers {
+class Pair : protected Pointers, public MinExtraDOF {
   friend class AngleSPICA;
   friend class AngleSPICAOMP;
   friend class BondQuartic;
@@ -226,9 +227,6 @@ class Pair : protected Pointers {
   virtual void *extract_peratom(const char *, int &) { return nullptr; }
   virtual void swap_eam(double *, double **) {}
   virtual void reset_dt() {}
-  virtual void min_xf_pointers(int, double **, double **) {}
-  virtual void min_xf_get(int) {}
-  virtual void min_x_set(int) {}
   virtual void transfer_history(double *, double *, int, int) {}
 
   // management of callbacks to be run from ev_tally()

@@ -226,6 +226,8 @@ action fix_heat_kokkos.cpp
 action fix_heat_kokkos.h
 action fix_langevin_kokkos.cpp
 action fix_langevin_kokkos.h
+action fix_langevin_tspin_kokkos.cpp fix_langevin_tspin.cpp
+action fix_langevin_tspin_kokkos.h fix_langevin_tspin.h
 action fix_lineforce_kokkos.cpp
 action fix_lineforce_kokkos.h
 action fix_minimize_kokkos.cpp
@@ -236,14 +238,20 @@ action fix_neigh_history_kokkos.cpp
 action fix_neigh_history_kokkos.h
 action fix_nh_kokkos.cpp
 action fix_nh_kokkos.h
+action fix_nh_tspin_kokkos.cpp fix_nh_tspin.cpp
+action fix_nh_tspin_kokkos.h fix_nh_tspin.h
 action fix_nh_sphere_kokkos.cpp
 action fix_nh_sphere_kokkos.h
 action fix_nph_kokkos.cpp
 action fix_nph_kokkos.h
+action fix_nph_tspin_kokkos.cpp fix_nph_tspin.cpp
+action fix_nph_tspin_kokkos.h fix_nph_tspin.h
 action fix_nph_sphere_kokkos.cpp
 action fix_nph_sphere_kokkos.h
 action fix_npt_kokkos.cpp
 action fix_npt_kokkos.h
+action fix_npt_tspin_kokkos.cpp fix_npt_tspin.cpp
+action fix_npt_tspin_kokkos.h fix_npt_tspin.h
 action fix_npt_sphere_kokkos.cpp
 action fix_npt_sphere_kokkos.h
 action fix_nve_asphere_noforce_kokkos.cpp fix_nve_asphere_noforce.cpp
@@ -254,12 +262,16 @@ action fix_nve_limit_kokkos.cpp
 action fix_nve_limit_kokkos.h
 action fix_nve_sphere_kokkos.cpp
 action fix_nve_sphere_kokkos.h
+action fix_nve_tspin_kokkos.cpp fix_nve_tspin.cpp
+action fix_nve_tspin_kokkos.h fix_nve_tspin.h
 action fix_nve_asphere_kokkos.cpp fix_nve_asphere.cpp
 action fix_nve_asphere_kokkos.h fix_nve_asphere.h
 action fix_nve_noforce_kokkos.cpp
 action fix_nve_noforce_kokkos.h
 action fix_nvt_kokkos.cpp
 action fix_nvt_kokkos.h
+action fix_nvt_tspin_kokkos.cpp fix_nvt_tspin.cpp
+action fix_nvt_tspin_kokkos.h fix_nvt_tspin.h
 action fix_nvt_sphere_kokkos.cpp
 action fix_nvt_sphere_kokkos.h
 action fix_nvt_sllod_kokkos.cpp
@@ -316,6 +328,8 @@ action fix_spring_rg_kokkos.cpp fix_spring_rg.cpp
 action fix_spring_rg_kokkos.h fix_spring_rg.h
 action fix_spring_self_kokkos.cpp
 action fix_spring_self_kokkos.h
+action fix_spring_tspin_kokkos.cpp fix_spring_tspin.cpp
+action fix_spring_tspin_kokkos.h fix_spring_tspin.h
 action fix_store_force_kokkos.cpp
 action fix_store_force_kokkos.h
 action fix_temp_berendsen_kokkos.cpp
@@ -400,6 +414,8 @@ action min_quickmin_kokkos.cpp
 action min_quickmin_kokkos.h
 action min_sd_kokkos.cpp
 action min_sd_kokkos.h
+action min_spin_cg_r3_kokkos.cpp min_spin_cg_r3.cpp
+action min_spin_cg_r3_kokkos.h min_spin_cg_r3.h
 action mliap_data_kokkos.cpp mliap_data.cpp
 action mliap_data_kokkos.h mliap_data.h
 action mliap_descriptor_kokkos.h mliap_descriptor.h
