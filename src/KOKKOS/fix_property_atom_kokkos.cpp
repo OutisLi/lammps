@@ -19,9 +19,106 @@
 #include "memory_kokkos.h"
 
 #include <cstring>
+#include <type_traits>
 
 using namespace LAMMPS_NS;
 using namespace FixConst;
+
+namespace {
+
+// value of atom i in column k of a per-atom vector (rank 1) or array (rank 2)
+
+template <class ViewType>
+// NOLINTNEXTLINE
+KOKKOS_INLINE_FUNCTION decltype(auto) custom_value(const ViewType &values, int i, int k)
+{
+  if constexpr (ViewType::rank == 1) return values(i);
+  else return values(i, k);
+}
+
+// integer values travel bit for bit in the double buffer, as in the host
+// pack_exchange() of FixPropertyAtom
+
+template <class T>
+// NOLINTNEXTLINE
+KOKKOS_INLINE_FUNCTION double to_buffer(T value)
+{
+  if constexpr (std::is_integral_v<T>) return d_ubuf(value).d;
+  else return static_cast<double>(value);
+}
+
+template <class T>
+// NOLINTNEXTLINE
+KOKKOS_INLINE_FUNCTION T from_buffer(double value)
+{
+  if constexpr (std::is_integral_v<T>) return static_cast<T>(d_ubuf(value).i);
+  else return static_cast<T>(value);
+}
+
+/* ----------------------------------------------------------------------
+   exchange buffer layout: slot m holds the offset of the record of the m-th
+   sent atom, and the records of values_peratom values follow the nsend slots
+------------------------------------------------------------------------- */
+
+template <class DeviceType>
+struct PropertyAtomExchangeOffsets {
+  typedef DeviceType device_type;
+  typename ArrayTypes<DeviceType>::t_double_1d_um buf;
+  int nsend, width;
+
+  // NOLINTNEXTLINE
+  KOKKOS_INLINE_FUNCTION void operator()(const int m) const { buf(m) = nsend + m * width; }
+};
+
+// pack the values of the sent atom, then refill its slot from the atom of
+// the copy list: each sent slot is written by one thread only, and the atoms
+// of the copy list are not sent, so no thread reads a slot another one writes
+
+template <class DeviceType, class ViewType>
+struct PropertyAtomPackExchange {
+  typedef DeviceType device_type;
+  typename ArrayTypes<DeviceType>::t_double_1d_um buf;
+  typename ArrayTypes<DeviceType>::t_int_1d sendlist, copylist;
+  ViewType values;
+  int nsend, width, offset, ncol;
+
+  // NOLINTNEXTLINE
+  KOKKOS_INLINE_FUNCTION void operator()(const int m) const
+  {
+    const int i = sendlist(m);
+    const int first = nsend + m * width + offset;
+    for (int k = 0; k < ncol; k++) buf(first + k) = to_buffer(custom_value(values, i, k));
+    const int j = copylist(m);
+    if (j > -1)
+      for (int k = 0; k < ncol; k++) custom_value(values, i, k) = custom_value(values, j, k);
+  }
+};
+
+// the records of the first neighbor come first; the slots and offsets of the
+// second neighbor are relative to the start of its part of the buffer
+
+template <class DeviceType, class ViewType>
+struct PropertyAtomUnpackExchange {
+  typedef DeviceType device_type;
+  typename ArrayTypes<DeviceType>::t_double_1d_um buf;
+  typename ArrayTypes<DeviceType>::t_int_1d indices;
+  ViewType values;
+  int nrecv1, nextrarecv1, offset, ncol;
+
+  // NOLINTNEXTLINE
+  KOKKOS_INLINE_FUNCTION void operator()(const int i) const
+  {
+    const int index = indices(i);
+    if (index < 0) return;
+    int m = static_cast<int>(buf(i));
+    if (i >= nrecv1) m = nextrarecv1 + static_cast<int>(buf(nextrarecv1 + i - nrecv1));
+    m += offset;
+    using value_type = std::remove_cv_t<std::remove_reference_t<decltype(custom_value(values, 0, 0))>>;
+    for (int k = 0; k < ncol; k++) custom_value(values, index, k) = from_buffer<value_type>(buf(m + k));
+  }
+};
+
+}    // namespace
 
 /* ---------------------------------------------------------------------- */
 
@@ -47,6 +144,26 @@ FixPropertyAtomKokkos::FixPropertyAtomKokkos(LAMMPS *lmp, int narg, char **arg) 
     if (styles[nv] == IARRAY) iarray_flag = 1;
     if (styles[nv] == DARRAY) darray_flag = 1;
   }
+  custom_datamask = (ivector_flag ? IVECTOR_MASK : EMPTY_MASK) |
+      (dvector_flag ? DVECTOR_MASK : EMPTY_MASK) | (iarray_flag ? IARRAY_MASK : EMPTY_MASK) |
+      (darray_flag ? DARRAY_MASK : EMPTY_MASK);
+
+  // the custom vectors and arrays live in dual views, which the device sort
+  // and exchange permute and move in place; molecule IDs, charges and masses
+  // belong to the atom style and the other values are host arrays, so a fix
+  // holding any of them keeps the host sort and exchange, as does a fix with
+  // ghost values, whose border communication runs on the host
+
+  int custom_only = !border;
+  for (int nv = 0; nv < nvalue; nv++)
+    if ((styles[nv] != IVEC) && (styles[nv] != DVEC) && (styles[nv] != IARRAY) &&
+        (styles[nv] != DARRAY))
+      custom_only = 0;
+  sort_device = exchange_comm_device = custom_only;
+
+  // an exchanged atom takes its offset slot and its values in the buffer
+
+  if (custom_only) maxexchange = values_peratom + 1;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -56,6 +173,19 @@ void FixPropertyAtomKokkos::post_constructor()
   atomKK->update_property_atom();
 
   FixPropertyAtom::post_constructor();
+}
+
+/* ----------------------------------------------------------------------
+   the commands between runs, such as read_restart, set or velocity/tspin,
+   write the custom values on the host, so at the start of a run the host
+   copy is the current one and the next device access copies it over
+------------------------------------------------------------------------- */
+
+void FixPropertyAtomKokkos::init()
+{
+  FixPropertyAtom::init();
+  sync(Host, custom_datamask);
+  modified(Host, custom_datamask);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -181,6 +311,40 @@ void FixPropertyAtomKokkos::grow_arrays(int nmax)
     }
   }
   nmax_old = nmax;
+}
+
+/* ----------------------------------------------------------------------
+   the host callbacks of the legacy sort and exchange read and write the
+   host copies of the values of this fix, which device kernels may have
+   changed: the legacy exchange synchronizes only the arrays of the atom style
+------------------------------------------------------------------------- */
+
+static constexpr uint64_t PROPERTY_ATOM_MASK = MOLECULE_MASK | Q_MASK | RMASS_MASK |
+    IVECTOR_MASK | DVECTOR_MASK | IARRAY_MASK | DARRAY_MASK;
+
+void FixPropertyAtomKokkos::copy_arrays(int i, int j, int delflag)
+{
+  sync(Host, PROPERTY_ATOM_MASK);
+  FixPropertyAtom::copy_arrays(i, j, delflag);
+  modified(Host, PROPERTY_ATOM_MASK);
+}
+
+/* ---------------------------------------------------------------------- */
+
+int FixPropertyAtomKokkos::pack_exchange(int i, double *buf)
+{
+  sync(Host, PROPERTY_ATOM_MASK);
+  return FixPropertyAtom::pack_exchange(i, buf);
+}
+
+/* ---------------------------------------------------------------------- */
+
+int FixPropertyAtomKokkos::unpack_exchange(int nlocal, double *buf)
+{
+  sync(Host, PROPERTY_ATOM_MASK);
+  const int m = FixPropertyAtom::unpack_exchange(nlocal, buf);
+  modified(Host, PROPERTY_ATOM_MASK);
+  return m;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -316,4 +480,129 @@ void FixPropertyAtomKokkos::modified(ExecutionSpace space, uint64_t mask)
       for (int i = 0; i < atom->ndarray; i++)
         atomKK->k_darray.view_host()[i].k_view.modify_host();
   }
+}
+
+/* ----------------------------------------------------------------------
+   call f(per-atom view, columns, offset in the exchange record) for every
+   custom vector and array of this fix, with the view of the execution space
+   of DeviceType
+
+   The kernels below synchronize the values through AtomKokkos; init() has
+   claimed the host copy at the start of the run.
+------------------------------------------------------------------------- */
+
+template <class DeviceType, class Function>
+void FixPropertyAtomKokkos::for_each_custom_value(Function &&f)
+{
+  int offset = 0;
+  for (int nv = 0; nv < nvalue; nv++) {
+    const int idx = index[nv];
+    if (styles[nv] == IVEC) {
+      f(Kokkos::subview(atomKK->k_ivector.view<DeviceType>(), idx, Kokkos::ALL), 1, offset);
+      offset += 1;
+    } else if (styles[nv] == DVEC) {
+      f(Kokkos::subview(atomKK->k_dvector.view<DeviceType>(), idx, Kokkos::ALL), 1, offset);
+      offset += 1;
+    } else if (styles[nv] == IARRAY) {
+      f(atomKK->k_iarray.view_host()[idx].k_view.view<DeviceType>(), cols[nv], offset);
+      offset += cols[nv];
+    } else if (styles[nv] == DARRAY) {
+      f(atomKK->k_darray.view_host()[idx].k_view.view<DeviceType>(), cols[nv], offset);
+      offset += cols[nv];
+    }
+  }
+}
+
+/* ----------------------------------------------------------------------
+   apply the permutation of the device atom sort to the custom values
+------------------------------------------------------------------------- */
+
+void FixPropertyAtomKokkos::sort_kokkos(Kokkos::BinSort<KeyViewType, BinOp> &Sorter)
+{
+  atomKK->sync(Device, custom_datamask);
+  for_each_custom_value<LMPDeviceType>(
+      [&](auto values, int, int) { Sorter.sort(LMPDeviceType(), values); });
+  atomKK->modified(Device, custom_datamask);
+}
+
+/* ---------------------------------------------------------------------- */
+
+int FixPropertyAtomKokkos::pack_exchange_kokkos(const int &nsend, DAT::tdual_double_2d_lr &k_buf,
+                                                DAT::tdual_int_1d k_sendlist,
+                                                DAT::tdual_int_1d k_copylist,
+                                                ExecutionSpace space)
+{
+  if (space == Device)
+    return pack_exchange_space<LMPDeviceType>(nsend, k_buf, k_sendlist, k_copylist);
+  return pack_exchange_space<LMPHostType>(nsend, k_buf, k_sendlist, k_copylist);
+}
+
+/* ---------------------------------------------------------------------- */
+
+void FixPropertyAtomKokkos::unpack_exchange_kokkos(DAT::tdual_double_2d_lr &k_buf,
+                                                   DAT::tdual_int_1d &k_indices, int nrecv,
+                                                   int nrecv1, int nextrarecv1,
+                                                   ExecutionSpace space)
+{
+  if (space == Device)
+    unpack_exchange_space<LMPDeviceType>(k_buf, k_indices, nrecv, nrecv1, nextrarecv1);
+  else
+    unpack_exchange_space<LMPHostType>(k_buf, k_indices, nrecv, nrecv1, nextrarecv1);
+}
+
+/* ---------------------------------------------------------------------- */
+
+template <class DeviceType>
+int FixPropertyAtomKokkos::pack_exchange_space(int nsend, DAT::tdual_double_2d_lr &k_buf,
+                                               DAT::tdual_int_1d &k_sendlist,
+                                               DAT::tdual_int_1d &k_copylist)
+{
+  const ExecutionSpace space = ExecutionSpaceFromDevice<DeviceType>::space;
+  atomKK->sync(space, custom_datamask);
+  k_buf.sync<DeviceType>();
+  k_sendlist.sync<DeviceType>();
+  k_copylist.sync<DeviceType>();
+
+  const typename ArrayTypes<DeviceType>::t_double_1d_um buf(k_buf.view<DeviceType>().data(),
+                                                            k_buf.extent(0) * k_buf.extent(1));
+  const auto sendlist = k_sendlist.view<DeviceType>();
+  const auto copylist = k_copylist.view<DeviceType>();
+  const int width = values_peratom;
+
+  Kokkos::parallel_for(Kokkos::RangePolicy<DeviceType>(0, nsend),
+                       PropertyAtomExchangeOffsets<DeviceType>{buf, nsend, width});
+
+  for_each_custom_value<DeviceType>([&](auto values, int ncol, int offset) {
+    Kokkos::parallel_for(Kokkos::RangePolicy<DeviceType>(0, nsend),
+                         PropertyAtomPackExchange<DeviceType, decltype(values)>{
+                             buf, sendlist, copylist, values, nsend, width, offset, ncol});
+  });
+
+  k_buf.modify<DeviceType>();
+  atomKK->modified(space, custom_datamask);
+  return nsend * (width + 1);
+}
+
+/* ---------------------------------------------------------------------- */
+
+template <class DeviceType>
+void FixPropertyAtomKokkos::unpack_exchange_space(DAT::tdual_double_2d_lr &k_buf,
+                                                  DAT::tdual_int_1d &k_indices, int nrecv,
+                                                  int nrecv1, int nextrarecv1)
+{
+  const ExecutionSpace space = ExecutionSpaceFromDevice<DeviceType>::space;
+  atomKK->sync(space, custom_datamask);
+  k_buf.sync<DeviceType>();
+  k_indices.sync<DeviceType>();
+
+  const typename ArrayTypes<DeviceType>::t_double_1d_um buf(k_buf.view<DeviceType>().data(),
+                                                            k_buf.extent(0) * k_buf.extent(1));
+  const auto indices = k_indices.view<DeviceType>();
+
+  for_each_custom_value<DeviceType>([&](auto values, int ncol, int offset) {
+    Kokkos::parallel_for(Kokkos::RangePolicy<DeviceType>(0, nrecv),
+                         PropertyAtomUnpackExchange<DeviceType, decltype(values)>{
+                             buf, indices, values, nrecv1, nextrarecv1, offset, ncol});
+  });
+  atomKK->modified(space, custom_datamask);
 }

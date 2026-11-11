@@ -26,6 +26,42 @@
 
 namespace LAMMPS_NS {
 
+namespace {
+
+// Shared bin records retain integer types and tags. Each bin starts on a
+// double boundary, including adjacent bins with an odd slot capacity.
+
+template<bool RADIUS, bool TAGS>
+struct NeighborBinData {
+  double *x, *y, *z, *radius;
+  int *type, *id;
+  tagint *tag;
+
+  // NOLINTNEXTLINE
+  KOKKOS_INLINE_FUNCTION
+  static size_t bytes(int count)
+  {
+    const size_t size = count * ((3 + RADIUS) * sizeof(double) +
+                                2 * sizeof(int) + TAGS * sizeof(tagint));
+    return (size + sizeof(double) - 1) / sizeof(double) * sizeof(double);
+  }
+
+  // NOLINTNEXTLINE
+  KOKKOS_INLINE_FUNCTION
+  NeighborBinData(char *storage, int count)
+  {
+    x = reinterpret_cast<double *>(storage);
+    y = x + count;
+    z = y + count;
+    radius = RADIUS ? z + count : nullptr;
+    type = reinterpret_cast<int *>(x + (3 + RADIUS) * count);
+    id = type + count;
+    tag = TAGS ? reinterpret_cast<tagint *>(id + count) : nullptr;
+  }
+};
+
+} // namespace
+
 /* ---------------------------------------------------------------------- */
 
 template<class DeviceType, int HALF, int NEWTON, int GHOST, int TRI, int SIZE>
@@ -269,7 +305,7 @@ void NPairKokkos<DeviceType,HALF,NEWTON,GHOST,TRI,SIZE>::build(NeighList *list_)
     if (GHOST) {
       // assumes newton off
 
-      NPairKokkosBuildFunctorGhost<DeviceType,HALF> f(data,atoms_per_bin * 5 * sizeof(double) * factor);
+      NPairKokkosBuildFunctorGhost<DeviceType,HALF> f(data,NeighborBinData<false,false>::bytes(atoms_per_bin) * factor);
 
       // the team kernel builds a list only for the atoms it finds in the bins,
       // while the flat kernel walks 0..nall. Those differ when an include group
@@ -296,7 +332,7 @@ void NPairKokkos<DeviceType,HALF,NEWTON,GHOST,TRI,SIZE>::build(NeighList *list_)
 #endif
     } else {
       if (SIZE) {
-        NPairKokkosBuildFunctorSize<DeviceType,HALF,NEWTON,TRI> f(data,atoms_per_bin * 7 * sizeof(double) * factor);
+        NPairKokkosBuildFunctorSize<DeviceType,HALF,NEWTON,TRI> f(data,NeighborBinData<true,(HALF && NEWTON && TRI)>::bytes(atoms_per_bin) * factor);
 #ifdef LMP_KOKKOS_GPU
         if (ExecutionSpaceFromDevice<DeviceType>::space == Device) {
           int team_size = atoms_per_bin*factor;
@@ -314,7 +350,7 @@ void NPairKokkos<DeviceType,HALF,NEWTON,GHOST,TRI,SIZE>::build(NeighList *list_)
         Kokkos::parallel_for(nall, f);
 #endif
       } else {
-        NPairKokkosBuildFunctor<DeviceType,HALF,NEWTON,TRI> f(data,atoms_per_bin * 6 * sizeof(double) * factor);
+        NPairKokkosBuildFunctor<DeviceType,HALF,NEWTON,TRI> f(data,NeighborBinData<false,(HALF && NEWTON && TRI)>::bytes(atoms_per_bin) * factor);
 #ifdef LMP_KOKKOS_GPU
         if (ExecutionSpaceFromDevice<DeviceType>::space == Device) {
           int team_size = atoms_per_bin*factor;
@@ -623,7 +659,7 @@ LAMMPS_DEVICE_FUNCTION inline
 void NeighborKokkosExecute<DeviceType>::build_ItemGPU(typename Kokkos::TeamPolicy<DeviceType>::member_type dev,
                                                       size_t sharedsize) const
 {
-  auto* sharedmem = static_cast<double *>(dev.team_shmem().get_shmem(sharedsize));
+  auto* sharedmem = static_cast<char *>(dev.team_shmem().get_shmem(sharedsize));
 
   // loop over atoms in i's bin
 
@@ -636,8 +672,8 @@ void NeighborKokkosExecute<DeviceType>::build_ItemGPU(typename Kokkos::TeamPolic
 
   if (ibin >= mbins) return;
 
-  double* other_x = sharedmem + 6*atoms_per_bin*MY_BIN;
-  int* other_id = (int*) &other_x[5 * atoms_per_bin];
+  using SharedBin = NeighborBinData<false,(HalfNeigh && Newton && Tri)>;
+  SharedBin other(sharedmem + SharedBin::bytes(atoms_per_bin)*MY_BIN,atoms_per_bin);
 
   int bincount_current = c_bincount[ibin];
 
@@ -661,16 +697,16 @@ void NeighborKokkosExecute<DeviceType>::build_ItemGPU(typename Kokkos::TeamPolic
       ytmp = x(i, 1);
       ztmp = x(i, 2);
       itype = type(i);
-      other_x[MY_II] = xtmp;
-      other_x[MY_II + atoms_per_bin] = ytmp;
-      other_x[MY_II + 2 * atoms_per_bin] = ztmp;
-      other_x[MY_II + 3 * atoms_per_bin] = itype;
+      other.x[MY_II] = xtmp;
+      other.y[MY_II] = ytmp;
+      other.z[MY_II] = ztmp;
+      other.type[MY_II] = itype;
       if (HalfNeigh && Newton && Tri) {
         itag = tag(i);
-        other_x[MY_II + 4 * atoms_per_bin] = itag;
+        other.tag[MY_II] = itag;
       }
     }
-    other_id[MY_II] = i;
+    other.id[MY_II] = i;
 
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
     int test = (__syncthreads_count(i >= 0 && i < nlocal) == 0);
@@ -691,7 +727,7 @@ void NeighborKokkosExecute<DeviceType>::build_ItemGPU(typename Kokkos::TeamPolic
     if (i >= 0 && i < nlocal) {
       #pragma unroll 4
       for (int m = 0; m < bincount_current; m++) {
-        int j = other_id[m];
+        int j = other.id[m];
 
         if (j <= i) continue;
         if (j >= nlocal) {
@@ -702,12 +738,12 @@ void NeighborKokkosExecute<DeviceType>::build_ItemGPU(typename Kokkos::TeamPolic
           }
         }
 
-        const int jtype = other_x[m + 3 * atoms_per_bin];
+        const int jtype = other.type[m];
         if (exclude && exclusion(i,j,itype,jtype)) continue;
 
-        const double delx = xtmp - other_x[m];
-        const double dely = ytmp - other_x[m + atoms_per_bin];
-        const double delz = ztmp - other_x[m + 2 * atoms_per_bin];
+        const double delx = xtmp - other.x[m];
+        const double dely = ytmp - other.y[m];
+        const double delz = ztmp - other.z[m];
         const double rsq = delx*delx + dely*dely + delz*delz;
 
         if (rsq <= static_cast<double>(cutneighsq(itype,jtype))) {
@@ -752,22 +788,22 @@ void NeighborKokkosExecute<DeviceType>::build_ItemGPU(typename Kokkos::TeamPolic
       int j = MY_II < bincount_current ? c_bins(jbin, MY_II) : -1;
 
       if (j >= 0) {
-        other_x[MY_II] = x(j, 0);
-        other_x[MY_II + atoms_per_bin] = x(j, 1);
-        other_x[MY_II + 2 * atoms_per_bin] = x(j, 2);
-        other_x[MY_II + 3 * atoms_per_bin] = type(j);
+        other.x[MY_II] = x(j, 0);
+        other.y[MY_II] = x(j, 1);
+        other.z[MY_II] = x(j, 2);
+        other.type[MY_II] = type(j);
         if (HalfNeigh && Newton && Tri)
-          other_x[MY_II + 4 * atoms_per_bin] = tag(j);
+          other.tag[MY_II] = tag(j);
       }
 
-      other_id[MY_II] = j;
+      other.id[MY_II] = j;
 
       dev.team_barrier();
 
       if (i >= 0 && i < nlocal) {
         #pragma unroll 8
         for (int m = 0; m < bincount_current; m++) {
-          const int j = other_id[m];
+          const int j = other.id[m];
 
           if (HalfNeigh && !Newton && j <= i) continue;
           if (!HalfNeigh && j == i) continue;
@@ -781,7 +817,7 @@ void NeighborKokkosExecute<DeviceType>::build_ItemGPU(typename Kokkos::TeamPolic
           if (HalfNeigh && Newton && Tri) {
             if (j <= i) continue;
             if (j >= nlocal) {
-              const tagint jtag = other_x[m + 4 * atoms_per_bin];
+              const tagint jtag = other.tag[m];
               if (itag > jtag) {
                 if ((itag+jtag) % 2 == 0) continue;
               } else if (itag < jtag) {
@@ -798,12 +834,12 @@ void NeighborKokkosExecute<DeviceType>::build_ItemGPU(typename Kokkos::TeamPolic
             }
           }
 
-          const int jtype = other_x[m + 3 * atoms_per_bin];
+          const int jtype = other.type[m];
           if (exclude && exclusion(i,j,itype,jtype)) continue;
 
-          const double delx = xtmp - other_x[m];
-          const double dely = ytmp - other_x[m + atoms_per_bin];
-          const double delz = ztmp - other_x[m + 2 * atoms_per_bin];
+          const double delx = xtmp - other.x[m];
+          const double dely = ytmp - other.y[m];
+          const double delz = ztmp - other.z[m];
           const double rsq = delx*delx + dely*dely + delz*delz;
 
           if (rsq <= static_cast<double>(cutneighsq(itype,jtype))) {
@@ -983,7 +1019,7 @@ LAMMPS_DEVICE_FUNCTION inline
 void NeighborKokkosExecute<DeviceType>::build_ItemGhostGPU(typename Kokkos::TeamPolicy<DeviceType>::member_type dev,
                                                       size_t sharedsize) const
 {
-  auto* sharedmem = static_cast<double *>(dev.team_shmem().get_shmem(sharedsize));
+  auto* sharedmem = static_cast<char *>(dev.team_shmem().get_shmem(sharedsize));
 
   // loop over atoms in i's bin
 
@@ -996,8 +1032,8 @@ void NeighborKokkosExecute<DeviceType>::build_ItemGhostGPU(typename Kokkos::Team
 
   if (ibin >= mbins) return;
 
-  double* other_x = sharedmem + 5*atoms_per_bin*MY_BIN;
-  int* other_id = (int*) &other_x[4 * atoms_per_bin];
+  using SharedBin = NeighborBinData<false,false>;
+  SharedBin other(sharedmem + SharedBin::bytes(atoms_per_bin)*MY_BIN,atoms_per_bin);
 
   int bincount_current = c_bincount[ibin];
 
@@ -1020,12 +1056,12 @@ void NeighborKokkosExecute<DeviceType>::build_ItemGhostGPU(typename Kokkos::Team
       ytmp = x(i, 1);
       ztmp = x(i, 2);
       itype = type(i);
-      other_x[MY_II] = xtmp;
-      other_x[MY_II + atoms_per_bin] = ytmp;
-      other_x[MY_II + 2 * atoms_per_bin] = ztmp;
-      other_x[MY_II + 3 * atoms_per_bin] = itype;
+      other.x[MY_II] = xtmp;
+      other.y[MY_II] = ytmp;
+      other.z[MY_II] = ztmp;
+      other.type[MY_II] = itype;
     }
-    other_id[MY_II] = i;
+    other.id[MY_II] = i;
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
     int test = (__syncthreads_count(i >= 0 && i < nall) == 0);
     if (test) return;
@@ -1084,30 +1120,30 @@ void NeighborKokkosExecute<DeviceType>::build_ItemGhostGPU(typename Kokkos::Team
       int j = (jbin_valid && MY_II < bincount_current) ? c_bins(jbin, MY_II) : -1;
 
       if (j >= 0) {
-        other_x[MY_II] = x(j, 0);
-        other_x[MY_II + atoms_per_bin] = x(j, 1);
-        other_x[MY_II + 2 * atoms_per_bin] = x(j, 2);
-        other_x[MY_II + 3 * atoms_per_bin] = type(j);
+        other.x[MY_II] = x(j, 0);
+        other.y[MY_II] = x(j, 1);
+        other.z[MY_II] = x(j, 2);
+        other.type[MY_II] = type(j);
       }
 
-      other_id[MY_II] = j;
+      other.id[MY_II] = j;
 
       dev.team_barrier();
 
       if (active && i >= 0 && i < nall) {
         #pragma unroll 4
         for (int m = 0; m < bincount_current; m++) {
-          const int j = other_id[m];
+          const int j = other.id[m];
 
           if (HalfNeigh && j <= i) continue;
           else if (j == i) continue;
 
-          const int jtype = other_x[m + 3 * atoms_per_bin];
+          const int jtype = other.type[m];
           if (exclude && exclusion(i,j,itype,jtype)) continue;
 
-          const double delx = xtmp - other_x[m];
-          const double dely = ytmp - other_x[m + atoms_per_bin];
-          const double delz = ztmp - other_x[m + 2 * atoms_per_bin];
+          const double delx = xtmp - other.x[m];
+          const double dely = ytmp - other.y[m];
+          const double delz = ztmp - other.z[m];
           const double rsq = delx*delx + dely*dely + delz*delz;
 
           if (rsq <= (ghost ? static_cast<double>(cutneighghostsq(itype,jtype))
@@ -1352,7 +1388,7 @@ LAMMPS_DEVICE_FUNCTION inline
 void NeighborKokkosExecute<DeviceType>::build_ItemSizeGPU(typename Kokkos::TeamPolicy<DeviceType>::member_type dev,
                                                           size_t sharedsize) const
 {
-  auto* sharedmem = static_cast<double *>(dev.team_shmem().get_shmem(sharedsize));
+  auto* sharedmem = static_cast<char *>(dev.team_shmem().get_shmem(sharedsize));
 
   // loop over atoms in i's bin
 
@@ -1365,8 +1401,8 @@ void NeighborKokkosExecute<DeviceType>::build_ItemSizeGPU(typename Kokkos::TeamP
 
   if (ibin >= mbins) return;
 
-  double* other_x = sharedmem + 7*atoms_per_bin*MY_BIN;
-  int* other_id = (int*) &other_x[6 * atoms_per_bin];
+  using SharedBin = NeighborBinData<true,(HalfNeigh && Newton && Tri)>;
+  SharedBin other(sharedmem + SharedBin::bytes(atoms_per_bin)*MY_BIN,atoms_per_bin);
 
   int bincount_current = c_bincount[ibin];
 
@@ -1393,17 +1429,17 @@ void NeighborKokkosExecute<DeviceType>::build_ItemSizeGPU(typename Kokkos::TeamP
       ztmp = x(i, 2);
       radi = radius(i);
       itype = type(i);
-      other_x[MY_II] = xtmp;
-      other_x[MY_II + atoms_per_bin] = ytmp;
-      other_x[MY_II + 2 * atoms_per_bin] = ztmp;
-      other_x[MY_II + 3 * atoms_per_bin] = itype;
-      other_x[MY_II + 4 * atoms_per_bin] = radi;
+      other.x[MY_II] = xtmp;
+      other.y[MY_II] = ytmp;
+      other.z[MY_II] = ztmp;
+      other.type[MY_II] = itype;
+      other.radius[MY_II] = radi;
       if (HalfNeigh && Newton && Tri) {
         itag = tag(i);
-        other_x[MY_II + 5 * atoms_per_bin] = itag;
+        other.tag[MY_II] = itag;
       }
     }
-    other_id[MY_II] = i;
+    other.id[MY_II] = i;
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
     int test = (__syncthreads_count(i >= 0 && i < nlocal) == 0);
     if (test) return;
@@ -1419,7 +1455,7 @@ void NeighborKokkosExecute<DeviceType>::build_ItemSizeGPU(typename Kokkos::TeamP
     if (i >= 0 && i < nlocal) {
       #pragma unroll 4
       for (int m = 0; m < bincount_current; m++) {
-        int j = other_id[m];
+        int j = other.id[m];
 
         if (j <= i) continue;
         if (j >= nlocal) {
@@ -1430,13 +1466,13 @@ void NeighborKokkosExecute<DeviceType>::build_ItemSizeGPU(typename Kokkos::TeamP
           }
         }
 
-        const int jtype = other_x[m + 3 * atoms_per_bin];
+        const int jtype = other.type[m];
         if (exclude && exclusion(i,j,itype,jtype)) continue;
-        const double delx = xtmp - other_x[m];
-        const double dely = ytmp - other_x[m + atoms_per_bin];
-        const double delz = ztmp - other_x[m + 2 * atoms_per_bin];
+        const double delx = xtmp - other.x[m];
+        const double dely = ytmp - other.y[m];
+        const double delz = ztmp - other.z[m];
         const double rsq = delx*delx + dely*dely + delz*delz;
-        const double radsum = radi + other_x[m + 4 * atoms_per_bin];
+        const double radsum = radi + other.radius[m];
         const double cutsq = (radsum + skin) * (radsum + skin);
 
         if (rsq <= cutsq) {
@@ -1488,23 +1524,23 @@ void NeighborKokkosExecute<DeviceType>::build_ItemSizeGPU(typename Kokkos::TeamP
       int j = MY_II < bincount_current ? c_bins(jbin, MY_II) : -1;
 
       if (j >= 0) {
-        other_x[MY_II] = x(j, 0);
-        other_x[MY_II + atoms_per_bin] = x(j, 1);
-        other_x[MY_II + 2 * atoms_per_bin] = x(j, 2);
-        other_x[MY_II + 3 * atoms_per_bin] = type(j);
-        other_x[MY_II + 4 * atoms_per_bin] = radius(j);
+        other.x[MY_II] = x(j, 0);
+        other.y[MY_II] = x(j, 1);
+        other.z[MY_II] = x(j, 2);
+        other.type[MY_II] = type(j);
+        other.radius[MY_II] = radius(j);
         if (HalfNeigh && Newton && Tri)
-          other_x[MY_II + 5 * atoms_per_bin] = tag(j);
+          other.tag[MY_II] = tag(j);
       }
 
-      other_id[MY_II] = j;
+      other.id[MY_II] = j;
 
       dev.team_barrier();
 
       if (i >= 0 && i < nlocal) {
         #pragma unroll 8
         for (int m = 0; m < bincount_current; m++) {
-          const int j = other_id[m];
+          const int j = other.id[m];
 
           if (HalfNeigh && !Newton && j <= i) continue;
           if (!HalfNeigh && j == i) continue;
@@ -1518,7 +1554,7 @@ void NeighborKokkosExecute<DeviceType>::build_ItemSizeGPU(typename Kokkos::TeamP
           if (HalfNeigh && Newton && Tri) {
             if (j <= i) continue;
             if (j >= nlocal) {
-              const tagint jtag = other_x[m + 5 * atoms_per_bin];
+              const tagint jtag = other.tag[m];
               if (itag > jtag) {
                 if ((itag+jtag) % 2 == 0) continue;
               } else if (itag < jtag) {
@@ -1535,14 +1571,14 @@ void NeighborKokkosExecute<DeviceType>::build_ItemSizeGPU(typename Kokkos::TeamP
             }
           }
 
-          const int jtype = other_x[m + 3 * atoms_per_bin];
+          const int jtype = other.type[m];
           if (exclude && exclusion(i,j,itype,jtype)) continue;
 
-          const double delx = xtmp - other_x[m];
-          const double dely = ytmp - other_x[m + atoms_per_bin];
-          const double delz = ztmp - other_x[m + 2 * atoms_per_bin];
+          const double delx = xtmp - other.x[m];
+          const double dely = ytmp - other.y[m];
+          const double delz = ztmp - other.z[m];
           const double rsq = delx*delx + dely*dely + delz*delz;
-          const double radsum = radi + other_x[m + 4 * atoms_per_bin];
+          const double radsum = radi + other.radius[m];
           const double cutsq = (radsum + skin) * (radsum + skin);
 
           if (rsq <= cutsq) {

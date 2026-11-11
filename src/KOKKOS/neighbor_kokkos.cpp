@@ -41,6 +41,7 @@ NeighborKokkos::NeighborKokkos(LAMMPS *lmp) : Neighbor(lmp),
   neighbond_host(lmp),neighbond_device(lmp)
 {
   device_flag = 0;
+  distance_flag = decltype(distance_flag)("neigh:distance_flag");
   bondlist = nullptr;
   anglelist = nullptr;
   dihedrallist = nullptr;
@@ -239,9 +240,22 @@ int NeighborKokkos::check_distance_kokkos()
   int nlocal = atom->nlocal;
   if (includegroup) nlocal = atom->nfirst;
 
+  using ExecutionSpace = typename DeviceType::execution_space;
+  using ResultSpace = typename decltype(distance_flag)::memory_space;
+  ExecutionSpace exec;
+  Kokkos::RangePolicy<DeviceType, TagNeighborCheckDistance<DeviceType> > policy(exec,0,nlocal);
+
   int flag = 0;
   copymode = 1;
-  Kokkos::parallel_reduce(Kokkos::RangePolicy<DeviceType, TagNeighborCheckDistance<DeviceType> >(0,nlocal),*this,flag);
+  if constexpr (Kokkos::SpaceAccessibility<ExecutionSpace,ResultSpace>::accessible) {
+    // The reduction writes the host-accessible result directly. A view
+    // result may be asynchronous, so wait before the host reads it.
+    Kokkos::parallel_reduce(policy,*this,distance_flag);
+    exec.fence("NeighborKokkos::check_distance: host result");
+    flag = distance_flag();
+  } else {
+    Kokkos::parallel_reduce(policy,*this,flag);
+  }
   copymode = 0;
 
   int flagall;

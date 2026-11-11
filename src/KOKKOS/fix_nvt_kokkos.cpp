@@ -39,6 +39,11 @@ FixNVTKokkos<DeviceType>::FixNVTKokkos(LAMMPS *lmp, int narg, char **arg) :
   this->id_temp = utils::strdup(std::string(this->id)+"_temp");
   this->modify->add_compute(fmt::format("{} {} temp/kk",this->id_temp,this->group->names[this->igroup]));
   this->tcomputeflag = 1;
+
+  // scaling, the velocity kick and the position drift are those of
+  // FixNHKokkos, which its device-resident NVT path composes directly
+
+  this->chain_device_style = true;
 }
 
 namespace LAMMPS_NS {

@@ -1,6 +1,7 @@
 *~
 *.o
 *.so
+*.so.*
 *.lo
 *.cu_o
 *.ptx
@@ -67,6 +68,15 @@ src/Makefile.package.settings-e
 .Rhistory
 /.github/release_steps.html
 /.github/release_steps.epub
+
+# Products of an installation prefix at the repository root.
+/bin/
+/include/
+/share/
+/lib/cmake/
+/lib/pkgconfig/
+/lib/deepmd_lmp/
+/temp/
 
 # Claude code generated/maintained files
 /CLAUDE.md

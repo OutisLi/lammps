@@ -76,6 +76,8 @@ class NeighborKokkos : public Neighbor {
   DAT::ttransform_kkfloat_1d_3_lr x;
   DAT::ttransform_kkfloat_1d_3_lr xhold;
 
+  Kokkos::View<int,LMPPinnedHostType> distance_flag;
+
   double deltasq;
 
   void init_cutneighsq_kokkos(int) override;

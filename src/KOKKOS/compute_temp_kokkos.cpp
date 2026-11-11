@@ -19,6 +19,7 @@
 #include "comm.h"
 #include "error.h"
 #include "force.h"
+#include "group.h"
 #include "update.h"
 
 using namespace LAMMPS_NS;
@@ -42,31 +43,10 @@ ComputeTempKokkos<DeviceType>::ComputeTempKokkos(LAMMPS *lmp, int narg, char **a
 template<class DeviceType>
 double ComputeTempKokkos<DeviceType>::compute_scalar()
 {
-  atomKK->sync(execution_space,datamask_read);
-  atomKK->k_mass.sync<DeviceType>();
-
   invoked_scalar = update->ntimestep;
 
-  v = atomKK->k_v.view<DeviceType>();
-  if (atomKK->rmass)
-    rmass = atomKK->k_rmass.view<DeviceType>();
-  else
-    mass = atomKK->k_mass.view<DeviceType>();
-  type = atomKK->k_type.view<DeviceType>();
-  mask = atomKK->k_mask.view<DeviceType>();
-  int nlocal = atom->nlocal;
-
-  double t = 0.0;
-  CTEMP t_kk;
-
-  copymode = 1;
-  if (atomKK->rmass)
-    Kokkos::parallel_reduce(Kokkos::RangePolicy<DeviceType, TagComputeTempScalar<1> >(0,nlocal),*this,t_kk);
-  else
-    Kokkos::parallel_reduce(Kokkos::RangePolicy<DeviceType, TagComputeTempScalar<0> >(0,nlocal),*this,t_kk);
-  copymode = 0;
-
-  t = t_kk.t0; // could make this more efficient
+  double t;
+  reduce_scalar(t);
 
   MPI_Allreduce(&t,&scalar,1,MPI_DOUBLE,MPI_SUM,world);
   if (dynamic) dof_compute();
@@ -77,17 +57,76 @@ double ComputeTempKokkos<DeviceType>::compute_scalar()
   return scalar;
 }
 
+/* ----------------------------------------------------------------------
+   launch the reduction of compute_scalar() into the device scalar sum and
+   return the factor that converts the sum into the temperature, without
+   waiting for the device; the MPI sum of compute_scalar() is the identity on
+   one rank and the degrees of freedom are fixed, see scalar_on_device().
+   The host value scalar is not updated, so it is marked as not computed on
+   this step and a host reader recomputes it
+------------------------------------------------------------------------- */
+
+template<class DeviceType>
+double ComputeTempKokkos<DeviceType>::compute_scalar_device(const Kokkos::View<double, DeviceType> &sum)
+{
+  invoked_scalar = -1;
+  reduce_scalar(sum);
+  if (dof < 0.0 && natoms_temp > 0.0)
+    error->all(FLERR,"Temperature compute degrees of freedom < 0");
+  return tfactor;
+}
+
+/* ---------------------------------------------------------------------- */
+
+template<class DeviceType>
+bool ComputeTempKokkos<DeviceType>::scalar_on_device() const
+{
+  // test what setup() sets dynamic from: a fix asks during its init(),
+  // before setup() has run for this run
+
+  return !(dynamic_user || group->dynamic[igroup]) && comm->nprocs == 1;
+}
+
+/* ----------------------------------------------------------------------
+   reduce the kinetic sum of compute_scalar() into result, a host value or a
+   device view; both run the same reduction, so they sum in the same order
+------------------------------------------------------------------------- */
+
+template<class DeviceType>
+template<class ResultType>
+void ComputeTempKokkos<DeviceType>::reduce_scalar(ResultType &&result)
+{
+  atomKK->sync(execution_space,datamask_read);
+  atomKK->k_mass.sync<DeviceType>();
+
+  v = atomKK->k_v.view<DeviceType>();
+  if (atomKK->rmass)
+    rmass = atomKK->k_rmass.view<DeviceType>();
+  else
+    mass = atomKK->k_mass.view<DeviceType>();
+  type = atomKK->k_type.view<DeviceType>();
+  mask = atomKK->k_mask.view<DeviceType>();
+  int nlocal = atom->nlocal;
+
+  copymode = 1;
+  if (atomKK->rmass)
+    Kokkos::parallel_reduce(Kokkos::RangePolicy<DeviceType, TagComputeTempScalar<1> >(0,nlocal),*this,result);
+  else
+    Kokkos::parallel_reduce(Kokkos::RangePolicy<DeviceType, TagComputeTempScalar<0> >(0,nlocal),*this,result);
+  copymode = 0;
+}
+
 template<class DeviceType>
 template<int RMASS>
 // NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
-void ComputeTempKokkos<DeviceType>::operator()(TagComputeTempScalar<RMASS>, const int &i, CTEMP& t_kk) const {
+void ComputeTempKokkos<DeviceType>::operator()(TagComputeTempScalar<RMASS>, const int &i, double& t) const {
   if (RMASS) {
     if (mask[i] & groupbit)
-      t_kk.t0 += static_cast<double>((v(i,0)*v(i,0) + v(i,1)*v(i,1) + v(i,2)*v(i,2)) * rmass[i]);
+      t += static_cast<double>((v(i,0)*v(i,0) + v(i,1)*v(i,1) + v(i,2)*v(i,2)) * rmass[i]);
   } else {
     if (mask[i] & groupbit)
-      t_kk.t0 += static_cast<double>((v(i,0)*v(i,0) + v(i,1)*v(i,1) + v(i,2)*v(i,2)) *
+      t += static_cast<double>((v(i,0)*v(i,0) + v(i,1)*v(i,1) + v(i,2)*v(i,2)) *
         mass[type[i]]);
   }
 }

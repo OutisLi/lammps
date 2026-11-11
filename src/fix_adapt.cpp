@@ -17,6 +17,7 @@
 #include "angle.h"
 #include "angle_hybrid.h"
 #include "atom.h"
+#include "atom_masks.h"
 #include "bond.h"
 #include "bond_hybrid.h"
 #include "dihedral.h"
@@ -244,6 +245,12 @@ FixAdapt::FixAdapt(LAMMPS *lmp, int narg, char **arg) :
 
   if (scaleflag && (diam_flag || chgflag)) restart_global = 1;
   previous_diam_scale = previous_chg_scale = 1.0;
+
+  // adapting force-field parameters reads and writes no per-atom data, so a
+  // KOKKOS run moves none around the calls of this fix; equal-style variables
+  // synchronize the per-atom values they read themselves
+
+  if (!diam_flag && !chgflag) datamask_read = datamask_modify = EMPTY_MASK;
 
   // allocate pair style arrays
 
